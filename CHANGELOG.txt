@@ -1,5 +1,68 @@
 # Changelog
 
+## [v0.2.0-beta] - 2026-06-11
+
+### Added
+
+#### REST API Architecture
+- feat(api): FastAPI REST API replacing TUI/CLI (`airecon/api/`)
+- feat(api): CRUD endpoints for scans, findings, subdomains, ports, tool calls
+- feat(api): Swagger UI at `/docs`, ReDoc at `/redoc`
+- feat(api): Health check endpoint at `/api/health`
+- feat(api): Pydantic request/response schemas for all endpoints
+
+#### Background Worker
+- feat(worker): Async task queue for scan execution (`airecon/worker/`)
+- feat(worker): Per-scan config override via ContextVar
+- feat(worker): Real-time scan results saved to PostgreSQL
+- feat(worker): Scan cancellation support
+
+#### PostgreSQL + Prisma
+- feat(db): Prisma schema with models: Scan, Finding, Subdomain, Port, ToolCall
+- feat(db): Auto-migration service in docker-compose
+- feat(db): Per-scan configuration stored in Scan.config JSON field
+
+#### Per-Scan Configuration
+- feat(config): 134 scan-level config keys classified (llm_*, agent_*, pipeline_*, etc.)
+- feat(config): ContextVar-based config override — zero changes to 47 get_config() call sites
+- feat(config): `ScanConfigInput` pydantic model for typed API validation
+- feat(config): `create_scan_config()` merges DB overrides with global defaults
+
+#### OpenAI-Compatible LLM Provider
+- feat(llm): New `LLMClient` speaking OpenAI Chat Completions API (`/v1/chat/completions`)
+- feat(llm): Works with any OpenAI-compatible provider (OpenAI, OpenRouter, Ollama /v1, vLLM, Groq, etc.)
+- feat(llm): SSE streaming with chunk normalization
+- feat(llm): Tool-call accumulation from streaming deltas with JSON arg parsing
+- feat(llm): API key authentication via `llm_api_key`
+- feat(llm): `llm_extra_body` for provider-specific params
+
+#### Docker Deployment
+- feat(docker): Dockerfile for API container (Python 3.12-slim)
+- feat(docker): docker-compose.yml with api + postgres + migrate services
+- feat(docker): `.env.example` with all configurable variables
+- feat(docker): Health check for container orchestration
+
+#### Installation
+- feat(install): Rewritten install.sh with Docker Compose and Local modes
+- feat(install): Interactive mode selection and DATABASE_URL prompt
+- feat(install): Auto-creates .env, runs Prisma migrations, health-checks API
+
+### Changed
+- refactor: Removed entire TUI (`airecon/tui/`) — Textual app, widgets, styles
+- refactor: Removed CLI entry point (`__main__.py` argparse) — replaced with uvicorn launcher
+- refactor: Config keys renamed `ollama_*` → `llm_*` across all files
+- refactor: `ollama.py` reduced to thin re-export shim of `llm_client.py`
+- refactor: `self.ollama` attribute preserved (backward compat alias for LLMClient)
+- refactor: Health check endpoint uses `/v1/models` instead of `/api/tags`
+
+### Removed
+- remove: `textual` and `textual-dev` dependencies
+- remove: `ollama` Python package dependency (uses httpx directly)
+- remove: `mkdocs-material` dev dependency
+- remove: TUI components: app.py, buddy.py, startup.py, styles.tcss, widgets/
+
+---
+
 ## [v0.1.7-beta] - 2026-04-02
 
 ### Added

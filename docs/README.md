@@ -4,30 +4,34 @@ Welcome to the AIRecon documentation.
 
 ## Guides
 
-- [Features & Capabilities](features.md) — Core feature overview, Docker sandbox, pipeline phases, multi-agent system, anti-hallucination controls
-- [Tools Reference](tools.md) — Complete reference for native tools, Docker sandbox tools, and dynamic MCP tools
-- [Installation & Setup](installation.md) — Step-by-step installation guide with hardware requirements
-- [Configuration Reference](configuration.md) — All config options with examples, presets, and environment variable overrides
-- [Stability & Quality Status](stability.md) — Current validation snapshot, blockers, and realistic stability criteria
+- [Installation & Setup](installation.md) — Docker Compose, local development, LLM provider setup
+- [Configuration Reference](configuration.md) — Global config, per-scan config, all settings
+- [Features & Capabilities](features.md) — Core feature overview, Docker sandbox, pipeline phases
+- [Tools Reference](tools.md) — Complete reference for native tools, Docker sandbox tools, MCP tools
+- [Stability & Quality Status](stability.md) — Current validation snapshot and quality metrics
+
+## Architecture
+
+- [API Reference](../README.md#api-reference) — REST API endpoints
+- [Per-Scan Configuration](configuration.md#2-per-scan-config) — Override settings per scan
+- [LLM Provider Support](configuration.md#3-llm-provider-settings) — OpenAI, Ollama, OpenRouter, etc.
 
 ## Extending AIRecon
 
-- [Adding Custom Skills](development/creating_skills.md) — Create Markdown knowledge bases to teach the agent new attack techniques or technology-specific procedures.
+- [Creating Custom Skills](development/creating_skills.md) — Add Markdown knowledge bases for new attack techniques
 
 ## Quick Links
 
 | Task | Where to look |
 |------|--------------|
 | Install for the first time | [Installation Guide](installation.md) |
-| Change the LLM model | [configuration.md → ollama_model](configuration.md#ollama_model) |
-| Tune performance / VRAM | [configuration.md → Ollama Settings](configuration.md#3-ollama-settings) |
-| Understand the pipeline phases | [features.md → Pipeline Phases](features.md#pipeline-phases) |
-| Connect to Caido | [features.md → Caido Integration](features.md#caido-integration) |
-| Set up browser auth | [features.md → Browser Authentication](features.md#browser-authentication) |
-| Check current stability status | [stability.md](stability.md) |
+| Configure LLM provider | [Configuration → LLM Settings](configuration.md#3-llm-provider-settings) |
+| Create a scan | [README → API Reference](../README.md#api-reference) |
+| Override scan parameters | [Configuration → Per-Scan Config](configuration.md#2-per-scan-config) |
+| Understand the pipeline | [Features → Pipeline Phases](features.md#pipeline-phases) |
 | Add your own skill | [Creating Skills](development/creating_skills.md) |
-| Troubleshoot startup issues | [Installation → Troubleshooting](installation.md#11-troubleshooting) |
+| Troubleshoot issues | [Installation → Troubleshooting](installation.md#7-troubleshooting) |
 
 ## Community
 
-Found a bug or want to contribute? [GitHub Issues](https://github.com/pikpikcu/airecon/issues)
+Found a bug or want to contribute? [GitHub Issues](https://github.com/yuusha-project/airecon-promax/issues)

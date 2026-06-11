@@ -1,45 +1,229 @@
 <h1 align="center">
   <img src="images/logo.png" alt="AIRecon" width="200">
 </h1>
-<h4 align="center">AI-Powered Autonomous Penetration Testing Agent</h4>
+<h4 align="center">AI-Powered Autonomous Penetration Testing API</h4>
 <p align="center">
-  <a href="https://github.com/pikpikcu/airecon/releases"><img src="https://img.shields.io/badge/version-v0.1.7--beta-green.svg">
-  <a href="https://deepwiki.com/pikpikcu/airecon"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
-  <a href="https://pikpikcu.github.io/airecon/"><img src="https://img.shields.io/badge/Docs-airecon-blue.svg" alt="Docs"></a>
+  <a href="https://github.com/yuusha-project/airecon-promax/releases"><img src="https://img.shields.io/badge/version-v0.2.0--beta-green.svg">
   <img src="https://img.shields.io/badge/language-python-green.svg">
   <img src="https://img.shields.io/badge/python-3.12%2B-blue.svg">
-  <a href="https://ollama.com"><img src="https://img.shields.io/badge/LLM-Ollama%20(local)-orange.svg">
-  <a href="https://github.com/pikpikcu/airecon/blob/master/LICENSE">
+  <img src="https://img.shields.io/badge/LLM-OpenAI%20Compatible-orange.svg">
+  <img src="https://img.shields.io/badge/database-PostgreSQL-blue.svg">
+  <a href="https://github.com/yuusha-project/airecon-promax/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/LICENSE-MIT-red.svg">
   </a>
 </p>
 
-AIRecon is an autonomous penetration testing agent that combines a self-hosted **Ollama LLM** with a **Kali Linux Docker sandbox**, native **Caido proxy integration**, a structured **RECON → ANALYSIS → EXPLOIT → REPORT pipeline**, and a real-time **Textual TUI** — completely offline, no API keys required.
+AIRecon is an autonomous penetration testing platform that combines an **OpenAI-compatible LLM** with a **Kali Linux Docker sandbox**, native **Caido proxy integration**, and a structured **RECON → ANALYSIS → EXPLOIT → REPORT pipeline** — exposed as a REST API with background workers.
 
-![Airecon](images/airecon.png)
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Client (curl / UI)                    │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ REST API
+┌──────────────────────────▼──────────────────────────────────┐
+│                    FastAPI Server (:8000)                     │
+│  ┌──────────┐  ┌───────────┐  ┌──────────┐  ┌───────────┐  │
+│  │ /scans   │  │ /findings │  │ /health  │  │ /docs     │  │
+│  └────┬─────┘  └───────────┘  └──────────┘  └───────────┘  │
+│       │ enqueue                                                │
+│  ┌────▼──────────────────────────────────────────────────┐   │
+│  │              Worker (async task queue)                  │   │
+│  │  AgentLoop → LLM Client → Docker Sandbox → Tools      │   │
+│  └──────────────────────┬────────────────────────────────┘   │
+└──────────────────────────┼────────────────────────────────────┘
+                           │
+              ┌────────────▼────────────┐
+              │  PostgreSQL (Prisma)    │
+              │  Scans, Findings,       │
+              │  Subdomains, Ports,     │
+              │  ToolCalls              │
+              └─────────────────────────┘
+```
+
+## Quick Start
+
+```bash
+# Clone
+git clone https://github.com/yuusha-project/airecon-promax.git
+cd airecon-promax
+
+# Configure
+cp .env.example .env
+# Edit .env — set your LLM provider
+
+# Start with Docker Compose
+docker compose up --build
+```
+
+API available at `http://localhost:8000`. Swagger docs at `http://localhost:8000/docs`.
+
+### One-line Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yuusha-project/airecon-promax/feat/api/scripts/install.sh | bash
+```
 
 ---
 
-## Why AIRecon?
+## API Reference
 
-Commercial API-based models (OpenAI GPT-4, Claude, Gemini) become prohibitively expensive for recursive, autonomous recon workflows that can require thousands of LLM calls per session.
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/scans` | Create a new scan |
+| `GET` | `/api/scans` | List scans (filter by status/target) |
+| `GET` | `/api/scans/{id}` | Get scan details |
+| `POST` | `/api/scans/{id}/start` | Start scan (enqueues worker) |
+| `POST` | `/api/scans/{id}/stop` | Cancel running scan |
+| `DELETE` | `/api/scans/{id}` | Delete scan and all results |
+| `GET` | `/api/scans/{id}/findings` | List vulnerabilities |
+| `GET` | `/api/scans/{id}/subdomains` | List discovered subdomains |
+| `GET` | `/api/scans/{id}/ports` | List open ports |
+| `GET` | `/api/scans/{id}/tool-calls` | List tool execution log |
+| `GET` | `/api/health` | Health check (DB + LLM) |
+| `GET` | `/docs` | Swagger UI |
+| `GET` | `/redoc` | ReDoc documentation |
 
-AIRecon is built 100% for local, private operation.
+### Create & Start a Scan
 
-| Feature | AIRecon | Cloud-based agents |
-|---------|---------|-------------------|
-| API keys required | **No** | Yes |
-| Target data sent to cloud | **No** | Yes |
-| Works offline | **Yes** | No |
-| Caido integration | **Native** | None |
-| Session resume | **Yes** | Varies |
-| Local knowledge base | **~1.09M records** | None |
+```bash
+# Create scan with custom config
+curl -X POST http://localhost:8000/api/scans \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "example.com",
+    "config": {
+      "llm_model": "qwen3.5:35b",
+      "agent_recon_mode": "full",
+      "agent_max_tool_iterations": 200
+    }
+  }'
 
-- **Privacy First** — Target intelligence, tool output, and reports never leave your machine.
-- **Caido Native** — 5 built-in tools: list, replay, automate (`§FUZZ§`), findings, scope.
-- **Full Stack** — Kali sandbox + browser automation + custom fuzzer + Schemathesis API fuzzing + Semgrep SAST.
-- **Skills Knowledge Base** — 57 built-in skill files, 289 keyword → skill auto-mappings. Extended by **[airecon-skills](https://github.com/pikpikcu/airecon-skills)** — a community skill library with 57 additional CLI-based playbooks for CTF, bug bounty, and pentesting.
-- **Local Security Knowledge Base** — Optional **[airecon-dataset](https://github.com/pikpikcu/airecon-dataset)** indexes ~1.09M security records (CVEs, red team techniques, CTF writeups, nuclei templates, bug bounty payloads) into local SQLite FTS5. The LLM calls `dataset_search` autonomously before attempting unfamiliar techniques — grounding its decisions in real indexed data.
+# Start the scan
+curl -X POST http://localhost:8000/api/scans/<scan_id>/start
+
+# Check findings
+curl http://localhost:8000/api/scans/<scan_id>/findings
+```
+
+---
+
+## Per-Scan Configuration
+
+Scan parameters are stored in the database and applied per-scan. Override any of these when creating a scan:
+
+### LLM Provider
+| Key | Default | Description |
+|-----|---------|-------------|
+| `llm_base_url` | `http://127.0.0.1:11434/v1` | OpenAI-compatible API endpoint |
+| `llm_model` | `qwen3.5:122b` | Model name |
+| `llm_api_key` | `""` | API key (empty for local providers) |
+| `llm_temperature` | `0.15` | Output randomness (0.0–1.0) |
+| `llm_max_tokens` | `16384` | Max tokens to generate |
+| `llm_context_length` | `65536` | Context window size |
+| `llm_enable_thinking` | `true` | Enable reasoning traces |
+| `llm_thinking_mode` | `low` | `low` / `medium` / `high` / `adaptive` |
+
+### Agent Behavior
+| Key | Default | Description |
+|-----|---------|-------------|
+| `agent_recon_mode` | `standard` | `standard` or `full` |
+| `agent_max_tool_iterations` | `600` | Max tool calls per scan |
+| `agent_exploration_mode` | `true` | Enable broader scanning |
+| `agent_exploration_intensity` | `0.7` | Exploration aggressiveness (0.5–1.0) |
+| `agent_stagnation_threshold` | `3` | Iterations before forcing new approach |
+| `allow_destructive_testing` | `false` | Enable destructive tests |
+
+### Pipeline
+| Key | Default | Description |
+|-----|---------|-------------|
+| `pipeline_recon_max_iterations` | `500` | Max RECON phase iterations |
+| `pipeline_exploit_max_iterations` | `800` | Max EXPLOIT phase iterations |
+| `pipeline_confidence_threshold_recon` | `0.6` | Confidence to transition from RECON |
+
+Global settings (Docker, browser, proxy) stay in `~/.airecon/config.yaml`.
+
+---
+
+## LLM Provider Support
+
+Any OpenAI-compatible endpoint works:
+
+| Provider | `llm_base_url` | `llm_api_key` |
+|----------|----------------|---------------|
+| **Ollama** (local) | `http://localhost:11434/v1` | *(empty)* |
+| **OpenAI** | `https://api.openai.com/v1` | `sk-...` |
+| **OpenRouter** | `https://openrouter.ai/api/v1` | `sk-or-...` |
+| **Groq** | `https://api.groq.com/openai/v1` | `gsk_...` |
+| **Together AI** | `https://api.together.xyz/v1` | Your key |
+| **vLLM** (self-hosted) | `http://your-server:8000/v1` | *(empty)* |
+| **LiteLLM** (proxy) | `http://localhost:4000/v1` | Your key |
+
+### Model Requirements
+
+> **Tool calling support is REQUIRED.** The model must support native function/tool calling.
+
+| Model | VRAM | Notes |
+|-------|------|-------|
+| **Qwen3.5 122B** | 48+ GB | Best quality, most reliable |
+| **Qwen3.5 35B** | 20 GB | **Recommended for most users** |
+| **GPT-4o** | Cloud | Excellent tool calling |
+| **Claude 3.5 Sonnet** | Cloud | Strong reasoning |
+| **Qwen3.5 9B** | 6 GB | **Minimum viable** — expect errors |
+
+---
+
+## Installation
+
+### Docker Compose (Recommended)
+
+```bash
+git clone https://github.com/yuusha-project/airecon-promax.git
+cd airecon-promax
+cp .env.example .env
+# Edit .env to set your LLM provider
+docker compose up --build
+```
+
+Services:
+- **api** — FastAPI server on port 8000
+- **db** — PostgreSQL 16 on port 5432
+- **migrate** — Auto-runs Prisma migrations
+
+### Local Development
+
+```bash
+git clone https://github.com/yuusha-project/airecon-promax.git
+cd airecon-promax
+
+# Create venv
+python3.12 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Set up database
+export DATABASE_URL="postgresql://user:pass@localhost:5432/airecon"
+python -m prisma generate
+python -m prisma db push
+
+# Start API
+python -m airecon
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | *(required)* | PostgreSQL connection string |
+| `AIRECON_HOST` | `0.0.0.0` | API bind host |
+| `AIRECON_PORT` | `8000` | API bind port |
+| `AIRECON_LOG_LEVEL` | `info` | Log level |
+| `AIRECON_LLM_BASE_URL` | `http://host.docker.internal:11434/v1` | LLM endpoint |
+| `AIRECON_LLM_MODEL` | `qwen3.5:35b` | LLM model name |
+| `AIRECON_LLM_API_KEY` | *(empty)* | LLM API key |
 
 ---
 
@@ -49,405 +233,72 @@ AIRecon is built 100% for local, private operation.
 RECON → ANALYSIS → EXPLOIT → REPORT
 ```
 
-Each phase has specific objectives, recommended tools, and automatic transition criteria. Phase enforcement is **soft** — the agent is guided but never blocked. Checkpoints run every 5 (phase eval), 10 (self-eval), and 15 (context compression) iterations.
+Each phase has specific objectives, recommended tools, and automatic transition criteria. Phase enforcement is **soft** — the agent is guided but never blocked.
+
+- **RECON** — Subdomain enumeration, port scanning, technology detection, URL discovery
+- **ANALYSIS** — Injection point identification, parameter fuzzing, WAF detection
+- **EXPLOIT** — Vulnerability exploitation, proof-of-concept generation, chain building
+- **REPORT** — Vulnerability reporting with evidence, remediation, and severity scoring
 
 ---
 
-## Memory & Learning (What It Actually Does)
-
-AIRecon does **not** fine-tune the LLM. Its "learning" is local, structured telemetry that guides tool choice and avoids repeating failed paths.
-
-**Local persistence (all on disk, no cloud):**
-- SQLite memory DB at `~/.airecon/memory/airecon.db` storing sessions, findings, patterns, target intel, tool usage, model performance, skill usage, and attack-chain discoveries.
-- Adaptive learning state at `~/.airecon/learning/global_learning.json` (tool performance stats, strategy patterns, observation log, distilled insights).
-- Per-target memory files under `~/.airecon/memory/by_target/` when persisted, containing endpoints, vulns, WAF bypasses, sensitive params, and auth endpoints.
-- Payload memory snapshots can be saved under `workspace/<target>/payload_memory.json` when session persistence runs.
-
-**How it affects behavior:**
-- On session start, memory context is injected (target intel, similar findings, learned patterns, tool reliability).
-- Every 8 iterations, learned patterns and similar findings can be re-injected based on detected tech.
-- Adaptive tool ranking uses historical success/failure to order tools and suggest strategies.
-- Payload memory (when enabled) skips payloads that repeatedly failed for the same target/param.
-
----
-
-## Model Requirements
-
-AIRecon requires a model with **extended thinking** (`<think>` blocks) and **reliable tool-calling** capabilities. Capabilities are auto-detected via `ollama show` metadata.
-
-> **⚠️ Tool calling support is REQUIRED.** The model must support native function/tool calling. Models without this capability will be unable to execute any tools (http_observe, execute, browser actions, etc.), making AIRecon completely non-functional.
-> 
-> **Recommended minimum: 8B-9B parameters.** Models below 8B are technically usable but strongly discouraged — they frequently hallucinate tool output, invent CVEs, skip scope rules, and produce unreliable tool calls.
-
-| Model | Pull | VRAM | Notes |
-|-------|------|------|-------|
-| **Qwen3.5 122B** | `ollama pull qwen3.5:122b` | 48+ GB | Best quality, most reliable |
-| **Qwen3.5 35B** | `ollama pull qwen3.5:35b` | 20 GB | **Recommended for most users** |
-| **Qwen3.5 35b** | `ollama pull qwen3.5:35b-a3b` | 16 GB | MoE — lower VRAM |
-| **Qwen3.5 9B** | `ollama pull qwen3.5:9b` | 6 GB | **Minimum viable** — expect frequent errors |
-
-**Model size guidance:**
-- **≥32B:** Reliable for full recon pipelines, good tool calling accuracy
-- **8B-14B:** Usable for simple tasks, expect 20-40% tool call errors and hallucinations
-- **<8B:** Technically works but produces unreliable results — not recommended for serious testing
-
-**Known issues:** DeepSeek R1 produces incomplete function calls. Models < 8B lack reliable tool calling support.
-
----
-
-## Running Ollama on Google Colab (Limited Hardware)
-
-If you don't have a GPU or your local VRAM is below the minimum, you can run Ollama on a **free Google Colab T4 GPU** and connect AIRecon to it via a public tunnel.
-
-> **Open the notebook:**
-> [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pikpikcu/airecon/blob/main/scripts/airecon_colab.ipynb)
-
-**How it works:**
+## Project Structure
 
 ```
-Google Colab GPU                     Your Local Machine
-┌─────────────────────────┐          ┌──────────────────────────┐
-│  Ollama (qwen3.5:9b)    │◄────────►│  AIRecon TUI             │
-│  cloudflared tunnel     │  HTTPS   │  ollama_url: tunnel URL  │
-└─────────────────────────┘          └──────────────────────────┘
+airecon-promax/
+├── airecon/
+│   ├── __main__.py          # Entry point (uvicorn)
+│   ├── api/                 # FastAPI REST API
+│   │   ├── app.py           # App factory + lifespan
+│   │   ├── deps.py          # Prisma DB client
+│   │   ├── schemas.py       # Pydantic models
+│   │   └── routes/          # Route handlers
+│   ├── worker/              # Background job processor
+│   │   └── runner.py        # Scan job runner
+│   ├── proxy/               # Core engine
+│   │   ├── llm_client.py    # OpenAI-compatible LLM client
+│   │   ├── agent/           # Agent loop, pipeline, executors
+│   │   ├── config.py        # Configuration system
+│   │   ├── docker.py        # Kali sandbox management
+│   │   └── ...              # Tools, fuzzers, browser, MCP
+│   └── _version.py          # Version info
+├── prisma/
+│   └── schema.prisma        # PostgreSQL schema
+├── docker-compose.yml       # Service orchestration
+├── Dockerfile               # API container image
+├── scripts/
+│   └── install.sh           # Installation script
+└── .env.example             # Environment template
 ```
-
-**Steps:**
-
-1. Open the Colab link above and select **Runtime → Change runtime type → T4 GPU**
-2. Run all cells top to bottom (takes ~5–10 minutes first time)
-3. Copy the config snippet printed in **Cell 6** into `~/.airecon/config.yaml`:
-
-```yaml
-ollama_url: "https://xxxx.trycloudflare.com"   # printed by Cell 6
-ollama_model: "qwen3.5:9b"
-ollama_timeout: 300.0
-ollama_chunk_timeout: 300.0
-ollama_num_ctx: 32768
-ollama_num_ctx_small: 16384
-```
-
-4. Start AIRecon normally: `airecon start`
-
-**Colab GPU → model availability:**
-
-| Colab GPU | VRAM | Available model | Plan |
-|-----------|------|-----------------|------|
-| T4 | 15 GB | `qwen3.5:9b` | Free |
-| L4 | 22 GB | `qwen3.5:35b-a3b` (MoE) | Pro |
-| A100 | 40 GB | `qwen3.5:35b` | Pro+ |
-| H100 | 80 GB | `qwen3.5:122b` | Pro+ |
-
-**Limitations:**
-- Colab sessions last max **12 hours** (free) / **24 hours** (Pro) — tunnel URL changes on reconnect
-- T4 with `qwen3.5:9b` is the minimum viable setup — expect slower responses and more tool-call errors than a local 35B+ model
-- Not suitable for long autonomous sessions (deep recon can exceed session limits)
-- The Colab notebook is located at [`scripts/airecon_colab.ipynb`](scripts/airecon_colab.ipynb) if you want to self-host or modify it
-
----
-
-## Installation
-
-**Prerequisites:** Python 3.12+, Docker 20.10+, Ollama (running), git, curl
-
-### One-line install (recommended)
-
-```text
-curl -fsSL https://raw.githubusercontent.com/pikpikcu/airecon/refs/heads/main/scripts/install.sh | bash
-```
-
-The script auto-detects remote vs local mode, installs Poetry if missing (via official installer — no system package conflicts), builds the wheel, and installs to `~/.local/bin`.
-
-### Manual install (from source)
-
-```text
-git clone https://github.com/pikpikcu/airecon.git
-cd airecon
-./install.sh
-```
-
-```text
-# Add to ~/.bashrc or ~/.zshrc if needed
-export PATH="$HOME/.local/bin:$PATH"
-
-airecon --version
-```
----
-
-## Configuration
-
-Config file: `~/.airecon/config.yaml` (auto-generated on first run). AIRecon will create `~/.airecon/` if it doesn't exist, including when a custom `~` path is used.
-
-```yaml
-# ======================================
-# Ollama Connection
-# ======================================
-# Ollama API endpoint. REQUIRED — must be set. For local: http://127.0.0.1:11434. For remote: http://IP:11434
-ollama_url: "http://127.0.0.1:11434"
-# Model to use. 122B for best reasoning (requires 60GB+ VRAM). For 12GB VRAM: use qwen2.5:7b or smaller. For 8GB VRAM: use qwen2.5:1.8b.
-ollama_model: "qwen3.5:122b"
-# Total request timeout (seconds). 180s = 3 min. Stable for most models. Increase to 300s for slow remote servers or 122B models.
-ollama_timeout: 180.0
-
-# ======================================
-# Ollama Model Settings
-# ======================================
-# Context window size. 65536 = 64K (stable for 12GB VRAM with 8B models). 131072 = 128K requires 30GB+ VRAM. Set -1 for server default.
-ollama_num_ctx: 65536
-# Context for CTF/summary mode. 32768 = 32K (stable for 12GB VRAM). Reduced from 64K for stability with 8B+ models.
-ollama_num_ctx_small: 32768
-# LLM output randomness. 0.0=deterministic, 0.15=recommended (strict), 0.3=creative. Does NOT affect thinking mode — controls output diversity only.
-ollama_temperature: 0.15
-# Max tokens to generate. 16384 = 16K (stable for 12GB VRAM). 32K requires more VRAM.
-ollama_num_predict: 16384
-# Enable extended thinking mode (for Qwen3.5+/Qwen2.5+). When enabled, model generates <think> reasoning blocks before answering.
-ollama_enable_thinking: true
-# Thinking intensity: low|medium|high|adaptive. For 12GB VRAM: use 'low' or 'medium'. 'high' may cause OOM with 8B models. Low=only deep tools, Medium=ANALYSIS+deep tools, High=most iterations (high VRAM only).
-ollama_thinking_mode: low
-# Protect first N tokens from KV eviction. 4096 = 4K (reduced for 12GB VRAM stability). 8K for larger VRAM.
-ollama_num_keep: 4096
-
-# ======================================
-# Proxy Server
-# ======================================
-# Host to bind proxy server. 127.0.0.1 = localhost only.
-proxy_host: 127.0.0.1
-# Port for proxy server. Default 3000.
-proxy_port: 3000
-
-# ======================================
-# Timeouts
-# ======================================
-# Docker command timeout (seconds). 900s = 15 min for long scans (nmap, nuclei).
-command_timeout: 900.0
-
-# ======================================
-# Docker Sandbox
-# ======================================
-# Container memory limit. '16g' = 16GB (stable for 32GB+ RAM host, 18GB image + Chromium). Prevents OOM kills. Set to '12g' for 32GB RAM, '8g' for 16GB systems, '4g' for 8GB systems.
-docker_memory_limit: 16g
-
-# ======================================
-# Deep Recon
-# ======================================
-# Auto-start deep recon on session start.
-deep_recon_autostart: true
-# Recon execution mode: standard|full. standard=respect user scope, full=auto-expand simple target prompts into comprehensive recon.
-agent_recon_mode: standard
-
-# ======================================
-# Safety
-# ======================================
-# Allow destructive tests (e.g., DELETE requests). Default: False for safety.
-allow_destructive_testing: false
-```
-
-| Key | Default | Notes |
-|-----|---------|-------|
-| `ollama_temperature` | `0.15` | Keep 0.1–0.2. Higher values cause hallucination. |
-| `ollama_num_ctx` | `131072` | Reduce to `32768` if VRAM is limited. |
-| `ollama_keep_alive` | `"60m"` | How long to keep model in VRAM. |
-| `deep_recon_autostart` | `true` | Bare domain inputs auto-expand to full recon. |
-| `allow_destructive_testing` | `false` | Unlocks aggressive modes (SQLi confirm, RCE chains). |
-| `command_timeout` | `900.0` | Max seconds per shell command in Docker. |
-| `vuln_similarity_threshold` | `0.7` | Jaccard dedup threshold for vulnerabilities. |
-
-**Remote Ollama** (LAN server or Google Colab tunnel):
-```yaml
-ollama_url: "http://192.168.1.100:11434"   # LAN server
-ollama_model: "qwen3.5:35b"
-
-# or via Colab tunnel (see "Running Ollama on Google Colab" section above):
-ollama_url: "https://xxxx.trycloudflare.com"
-ollama_model: "qwen3.5:9b"
-ollama_timeout: 300.0
-ollama_chunk_timeout: 300.0
-```
-
----
-
-## MCP Integration
-
-AIRecon can connect to external MCP servers and expose their tools dynamically as `mcp_<server>` tools.
-
-Config file: `~/.airecon/mcp.json`
-
-**Example config:**
-```json
-{
-  "mcpServers": {
-    "hexstrike": {
-      "command": "python3",
-      "args": [
-        "/path/hexstrike-ai/hexstrike_mcp.py",
-        "--server",
-        "http://127.0.0.1:8888"
-      ],
-      "env": {
-        "PYTHONUNBUFFERED": "1"
-      },
-      "enabled": true
-    },
-    "xssgen": {
-      "command": "python3",
-      "args": [
-        "/path/xssgen/xss_client.py",
-        "--server",
-        "http://127.0.0.1:8000"
-      ],
-      "env": {
-        "PYTHONUNBUFFERED": "1"
-      },
-      "enabled": true
-    },
-    "recon": {
-      "transport": "sse",
-      "url": "https://example.com/mcp",
-      "enabled": true,
-      "headers": {
-        "Authorization": "Bearer xxxxx"
-      }
-    }
-  }
-}   
-```
-
-**Using MCP tools in chat:**
-- Tool name format: `mcp_<server>`
-- Actions: `list_tools`, `search_tools`, `call_tool`
-
-Example:
-```json
-{"name": "mcp_acme", "arguments": {"action": "list_tools"}}
-```
-
----
-
-## Knowledge Base (airecon-dataset)
-
-**[airecon-dataset](https://github.com/pikpikcu/airecon-dataset)** is an optional companion that downloads security datasets from HuggingFace and indexes them locally into SQLite FTS5 databases. Once installed, the LLM queries them autonomously via the `dataset_search` tool.
-
-**How it works:** `dataset_search` is a standard agent tool in `tools.json`. The LLM decides when to call it — AIRecon does not auto-trigger it. The system prompt instructs the agent to query the knowledge base before attempting unfamiliar techniques.
-
-```bash
-git clone https://github.com/pikpikcu/airecon-dataset.git
-cd airecon-dataset && python install.py
-```
-
-**Datasets included (~1.09M records total, 100% offline):**
-
-| Dataset | Records | Content |
-|---------|---------|---------|
-| Pentest Agent (ChatML) | 322,433 | CVE-based exploitation workflows (MITRE/NVD/ExploitDB) |
-| CTF SaTML 2024 | 190,657 | Real attack/defense CTF interaction data |
-| CTF Instruct | 141,182 | Pwn, web, crypto, forensics, reverse engineering |
-| Cybersecurity CVE | 124,732 | CVE analysis, CVSS, exploitation context |
-| SQL Injection Q&A | 50,632 | Conversational SQLi — detection, bypass, exploitation |
-| Cybersecurity Fenrir | 83,918 | Attack/defense instruction pairs |
-| Red Team Offensive | 78,430 | Lateral movement, privilege escalation, evasion |
-| Cybersecurity Q&A | 53,199 | Broad security knowledge |
-| StackExchange RE | 20,641 | Binary analysis, disassembly, debugging, malware |
-| Nuclei Templates | 23,180 | Nuclei YAML template generation |
-| NVD Security Instructions | 2,063 | Structured CVE analysis with severity and remediation |
-| APT Privilege Escalation | 1,000 | Linux priv esc techniques with APT tactics |
-| Bug Bounty & Pentest | 146 | Payloads, bypass methods, report templates |
-
-**Example agent queries (called autonomously by the LLM):**
-```
-dataset_search: {"query": "log4j RCE exploitation chain"}
-dataset_search: {"query": "SSRF bypass cloud metadata", "category": "bug-bounty"}
-dataset_search: {"query": "nuclei template XSS detection"}
-dataset_search: {"query": "CVE 2021 44228", "category": "vulnerability"}
-```
-
-Results are capped at 500 chars each. Special chars in CVE IDs (dashes, brackets) are sanitized automatically.
-
----
-
-## Usage
-
-```text
-airecon start                          # start TUI
-airecon start --session <session_id>  # resume session
-```
-
-**Example prompts:**
-
-```
-# Full pipeline
-full recon on example.com
-pentest https://api.example.com
-
-# Specific tasks
-find subdomains of example.com
-scan ports on 10.0.0.1
-check for XSS on https://example.com/search
-test SQL injection on https://example.com/api/login parameter: username
-run schemathesis on https://example.com/openapi.json
-
-# Authenticated testing
-login to https://example.com/login with admin@example.com / password123 then test for IDOR
-test https://app.example.com with TOTP: JBSWY3DPEHPK3PXP
-
-# Multi-agent
-spawn an XSS specialist on https://example.com/search
-run parallel recon on: example.com, sub.example.com, api.example.com
-
-# Caido
-replay request #1234 with a modified Authorization header
-use Caido to fuzz the username parameter in request #45 with §FUZZ§ markers
-```
-
----
-
-## Workspace
-
-```
-workspace/<target>/
-      ├── command/         # system-managed logs
-      ├── output/          # Raw tool outputs (nmap, httpx, nuclei, subfinder, ...)
-      ├── tools/           # AI-generated exploit scripts (.py, .sh)
-      └── vulnerabilities/ # Verified vulnerability reports (.md)
-```
-
-Sessions persist at `~/.airecon/sessions/<session_id>.json` — subdomains, ports, technologies, URLs, vulnerabilities (Jaccard dedup), auth tokens, and completed phases.
 
 ---
 
 ## Troubleshooting
 
-**Ollama OOM / HTML error page** — Most common on long sessions or large models near VRAM limits.
-
-```text
-sudo systemctl restart ollama
+**API not starting** — Check database connectivity:
+```bash
+docker compose logs db
+docker compose logs api
 ```
 
-```json
-{ "ollama_num_ctx": 32768, "ollama_num_ctx_small": 16384, "ollama_num_predict": 8192 }
+**LLM connection failed** — Verify the endpoint is reachable from the container:
+```bash
+docker compose exec api curl -s http://host.docker.internal:11434/v1/models
 ```
 
-**Agent loops/stalls** — Usually a reasoning failure. Try a larger model, or reduce `ollama_temperature` to `< 0.2`.
-
-**Docker sandbox not starting:**
-```text
-docker build -t airecon-sandbox airecon/containers/kali/
+**Database migration failed** — Reset and re-migrate:
+```bash
+docker compose down -v
+docker compose up --build
 ```
 
-**Caido connection refused** — Caido must be running before AIRecon. Default: `127.0.0.1:48080`.
-
-**PATH not found after install:**
-```text
-export PATH="$HOME/.local/bin:$PATH" && source ~/.zshrc
+**Worker stuck** — Check scan status and cancel if needed:
+```bash
+curl http://localhost:8000/api/scans/<id>
+curl -X POST http://localhost:8000/api/scans/<id>/stop
 ```
-## Star History
 
-<a href="https://www.star-history.com/?repos=pikpikcu%2Fairecon&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=pikpikcu/airecon&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=pikpikcu/airecon&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=pikpikcu/airecon&type=date&legend=top-left" />
- </picture>
-</a>
+---
 
 ## Contributing
 

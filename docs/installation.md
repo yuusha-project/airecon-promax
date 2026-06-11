@@ -3,390 +3,288 @@
 ## Table of Contents
 
 1. [System Requirements](#1-system-requirements)
-2. [Install Ollama](#2-install-ollama)
-3. [Pull a Model](#3-pull-a-model)
-4. [Install AIRecon](#4-install-airecon)
-5. [Configure PATH](#5-configure-path)
-6. [Build the Docker Sandbox](#6-build-the-docker-sandbox)
-7. [Verify the Installation](#7-verify-the-installation)
-8. [First Run](#8-first-run)
-9. [Updating AIRecon](#9-updating-airecon)
-10. [Remote Ollama Setup](#10-remote-ollama-setup)
-11. [Optional: Install Datasets](#11-optional-install-datasets)
-12. [Troubleshooting](#12-troubleshooting)
+2. [Docker Compose Install (Recommended)](#2-docker-compose-install)
+3. [Local Development Install](#3-local-development-install)
+4. [LLM Provider Setup](#4-llm-provider-setup)
+5. [Verify Installation](#5-verify-installation)
+6. [Updating](#6-updating)
+7. [Troubleshooting](#7-troubleshooting)
 
 ---
 
 ## 1. System Requirements
 
-> **Model requirement:** AIRecon requires a model with **native tool calling** support. Model size and VRAM needs depend on the specific model, quantization, and context length.
-
-### Baseline requirements
-| Component | Baseline |
-|-----------|---------|
-| OS | Linux, macOS, WSL2 on Windows |
-| Python | 3.12+ |
-| Docker | 20.10+ |
-| Ollama | Recent version with tool-calling support |
-| Storage | 40+ GB free (model + Docker image + tools) |
-
-### Model guidance
-- Use the largest model you can run reliably within your VRAM budget.
-- Smaller models can work for limited tasks, but reliability drops as size shrinks.
-- Models below **8B** are not recommended for full engagements.
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| OS | Linux, macOS, WSL2 | Linux |
+| Python | 3.12+ | 3.12+ |
+| Docker | 20.10+ | 24+ with Compose v2 |
+| PostgreSQL | 15+ (or via Docker) | 16 |
+| RAM | 8 GB | 32 GB+ |
+| Storage | 20 GB free | 50 GB+ |
+| GPU | Optional (for local LLM) | 20 GB+ VRAM |
 
 ---
 
-## 2. Install Ollama
+## 2. Docker Compose Install
+
+The fastest way to get started. All services (API, PostgreSQL, migrations) run in containers.
 
 ```bash
-# Linux / macOS
+# Clone repository
+git clone https://github.com/yuusha-project/airecon-promax.git
+cd airecon-promax
+
+# Create environment config
+cp .env.example .env
+
+# Edit .env to configure your LLM provider
+nano .env
+
+# Start all services
+docker compose up --build
+```
+
+Services started:
+- **api** — FastAPI server on port 8000
+- **db** — PostgreSQL 16 on port 5432
+- **migrate** — Runs Prisma database migrations (one-shot)
+
+### Using the Installer Script
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yuusha-project/airecon-promax/feat/api/scripts/install.sh | bash
+```
+
+Select option **1** (Docker Compose) when prompted.
+
+---
+
+## 3. Local Development Install
+
+For development or when you need direct access to the Python environment.
+
+### Prerequisites
+
+- Python 3.12+
+- PostgreSQL 15+ running locally or accessible via network
+- Docker (for Kali sandbox container)
+
+### Steps
+
+```bash
+# Clone repository
+git clone https://github.com/yuusha-project/airecon-promax.git
+cd airecon-promax
+
+# Create virtual environment
+python3.12 -m venv .venv
+source .venv/bin/activate
+
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Install Playwright browser engine
+python -m playwright install chromium
+
+# Configure database URL
+export DATABASE_URL="postgresql://user:password@localhost:5432/airecon"
+
+# Generate Prisma client
+python -m prisma generate
+
+# Run database migrations
+python -m prisma db push
+
+# Start the API server
+python -m airecon
+```
+
+### Quick PostgreSQL Setup (Docker)
+
+If you don't have PostgreSQL installed:
+
+```bash
+docker run -d \
+  --name airecon-db \
+  -p 5432:5432 \
+  -e POSTGRES_USER=airecon \
+  -e POSTGRES_PASSWORD=airecon \
+  -e POSTGRES_DB=airecon \
+  postgres:16-alpine
+```
+
+Then set:
+```bash
+export DATABASE_URL="postgresql://airecon:airecon@localhost:5432/airecon"
+```
+
+---
+
+## 4. LLM Provider Setup
+
+AIRecon works with any OpenAI-compatible API. Configure via `.env` (Docker) or environment variables (local).
+
+### Ollama (Local, Free)
+
+```bash
+# Install Ollama
 curl -fsSL https://ollama.com/install.sh | sh
 
-# Verify version — use a recent Ollama build with tool calling support
-ollama --version
-```
-
-Ensure Ollama is running as a service:
-
-```bash
-# Check status
-systemctl status ollama
-
-# Start if not running
-sudo systemctl start ollama
-# Or manually:
-ollama serve &
-```
-
----
-
-## 3. Pull a Model
-
-Pull the model you intend to use **before** starting AIRecon:
-
-```bash
-# Example picks — adjust to your VRAM and model availability
-ollama pull qwen3.5:9b
+# Pull a model
 ollama pull qwen3.5:35b
-ollama pull qwen3.5:122b
+
+# Configure .env
+AIRECON_LLM_BASE_URL=http://host.docker.internal:11434/v1   # Docker mode
+# or
+AIRECON_LLM_BASE_URL=http://127.0.0.1:11434/v1              # Local mode
+AIRECON_LLM_MODEL=qwen3.5:35b
+AIRECON_LLM_API_KEY=
 ```
 
-Verify the model is available:
+### OpenAI
 
 ```bash
-ollama list
-# Should show the model(s) you pulled
+AIRECON_LLM_BASE_URL=https://api.openai.com/v1
+AIRECON_LLM_MODEL=gpt-4o
+AIRECON_LLM_API_KEY=sk-...
 ```
 
-> **Small model caution:** models below 8B are not recommended for full engagements. Expect more tool-call errors and hallucinations as size shrinks.
+### OpenRouter
 
-> **Performance tip:** For NVIDIA GPUs, set `OLLAMA_GPU_LAYERS=99` to maximize GPU offloading:
-> ```
-> # Add to /etc/systemd/system/ollama.service [Service] section:
-> Environment="OLLAMA_GPU_LAYERS=99"
-> systemctl daemon-reload && systemctl restart ollama
-> ```
+```bash
+AIRECON_LLM_BASE_URL=https://openrouter.ai/api/v1
+AIRECON_LLM_MODEL=anthropic/claude-3.5-sonnet
+AIRECON_LLM_API_KEY=sk-or-...
+```
+
+### Other Providers
+
+Any endpoint that implements the OpenAI Chat Completions API (`/v1/chat/completions`):
+
+| Provider | Base URL |
+|----------|----------|
+| Groq | `https://api.groq.com/openai/v1` |
+| Together AI | `https://api.together.xyz/v1` |
+| Fireworks | `https://api.fireworks.ai/inference/v1` |
+| vLLM (self-hosted) | `http://your-server:8000/v1` |
+| LiteLLM (proxy) | `http://localhost:4000/v1` |
+
+### Model Requirements
+
+> **Tool calling support is REQUIRED.** The model must support native function/tool calling.
+
+| Model Size | Quality | Notes |
+|------------|---------|-------|
+| ≥32B | Reliable | Good tool calling accuracy |
+| 8B–14B | Usable | Expect 20–40% tool call errors |
+| <8B | Unreliable | Not recommended for serious testing |
 
 ---
 
-## 4. Install AIRecon
-
-AIRecon uses [Poetry](https://python-poetry.org/) for dependency management and builds a Python wheel that is installed to your user path.
+## 5. Verify Installation
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/pikpikcu/airecon.git
-cd airecon
+# Health check
+curl http://localhost:8000/api/health
 
-# 2. Run the installer
-./install.sh
-```
+# Expected response:
+# {"status":"ok","version":"0.2.0b0","database":"ok","llm":"..."}
 
-### What `install.sh` does
+# Create a test scan
+curl -X POST http://localhost:8000/api/scans \
+  -H "Content-Type: application/json" \
+  -d '{"target": "example.com"}'
 
-1. **Checks for Poetry** — installs it via pip if missing
-2. **Cleans previous installs** — removes old AIRecon versions to avoid conflicts
-3. **Installs Python dependencies** — `poetry install` (reads `pyproject.toml`)
-4. **Installs Playwright Chromium** — `poetry run playwright install chromium` (required for browser automation)
-5. **Builds the wheel** — `poetry build` → creates `dist/airecon-*.whl`
-6. **Installs to user site** — `pip install dist/airecon-*.whl --user` → binary at `~/.local/bin/airecon`
-
----
-
-## 5. Configure PATH
-
-The `airecon` command is installed to `~/.local/bin/`. If this is not in your PATH, the command will not be found.
-
-```bash
-# Check if it is already in PATH
-which airecon
-
-# If not found, add to your shell profile:
-
-# For bash:
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-
-# For zsh:
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-
-# Verify
-airecon --version
-```
-
----
-
-## 6. Build the Docker Sandbox
-
-The Docker sandbox is the Kali Linux execution environment where all shell commands run. You must build it before starting AIRecon.
-
-```bash
-cd airecon
-
-# Build the sandbox image (takes 5–15 minutes on first build)
-docker build -t airecon-sandbox airecon/containers/
-
-# Verify the image exists
-docker images | grep airecon-sandbox
-```
-
-> The sandbox includes: `nmap`, `naabu`, `masscan`, `subfinder`, `amass`, `httpx`, `nuclei`, `nikto`, `wapiti`, `ffuf`, `feroxbuster`, `sqlmap`, `dalfox`, `gau`, `waybackurls`, `katana`, `arjun`, full SecLists, FuzzDB, and 40+ more tools. It runs as user `pentester` with passwordless `sudo`.
-
-If `docker_auto_build: true` is set in your config, AIRecon will attempt to build the image automatically at startup if it is not found. Manual build is more reliable.
-
----
-
-## 7. Verify the Installation
-
-Run this checklist after installing:
-
-```bash
-# 1. Check AIRecon version
-airecon --version
-
-# 2. Check Ollama is running and model is available
-ollama list
-
-# 3. Check Docker image
-docker images | grep airecon-sandbox
-
-# 4. Test Playwright (should open and close Chromium silently)
-python3 -c "from playwright.sync_api import sync_playwright; p = sync_playwright().start(); b = p.chromium.launch(); b.close(); p.stop(); print('Playwright OK')"
-
-# 5. Check config file location
-cat ~/.airecon/config.yaml 2>/dev/null || echo "Will be created on first run"
+# Open API docs in browser
+# http://localhost:8000/docs
 ```
 
 ---
 
-## 8. First Run
+## 6. Updating
+
+### Docker Compose
 
 ```bash
-# Navigate to a working directory (workspace/ will be created here)
-cd ~/pentest-projects/
-
-# Start the TUI
-airecon start
-```
-
-On first run:
-- `~/.airecon/config.yaml` is created with default values
-- The `workspace/` directory is created in your current working directory
-- The Docker sandbox container is started
-
-**Set the correct model in config before starting:**
-
-```bash
-# Edit config
-nano ~/.airecon/config.yaml
-
-# Change "ollama_model" to match what you pulled, e.g.:
-# "ollama_model": "qwen3.5:9b"
-# "ollama_model": "qwen3.5:35b"
-# "ollama_model": "qwen3.5:122b"
-```
-
-See [Configuration Reference](configuration.md) for all options.
-
----
-
-## 9. Updating AIRecon
-
-```bash
-cd airecon
-
-# Pull latest changes
+cd airecon-promax
 git pull
-
-# Re-run the installer
-./install.sh
+docker compose up --build
 ```
 
-The installer automatically cleans the previous version before reinstalling.
+### Local
+
+```bash
+cd airecon-promax
+git pull
+source .venv/bin/activate
+pip install -r requirements.txt
+python -m prisma generate
+python -m prisma db push
+```
 
 ---
 
-## 10. Remote Ollama Setup
+## 7. Troubleshooting
 
-If your Ollama instance runs on a separate machine (e.g., a GPU server):
+### API not starting
 
-**On the Ollama server:**
 ```bash
-# Bind Ollama to all interfaces
+# Check logs
+docker compose logs api
+
+# Common causes:
+# - Database not ready → wait for db healthcheck
+# - Port 8000 in use → change API_PORT in .env
+# - Missing DATABASE_URL → check .env file
+```
+
+### LLM connection failed
+
+```bash
+# Test from inside the container
+docker compose exec api curl -s http://host.docker.internal:11434/v1/models
+
+# If using Ollama on Linux, ensure it listens on all interfaces:
 OLLAMA_HOST=0.0.0.0 ollama serve
-
-# Or set permanently in the systemd service:
-# Environment="OLLAMA_HOST=0.0.0.0"
 ```
 
-**In `~/.airecon/config.yaml` on your workstation:**
-```yaml
-ollama_url: "http://<server-ip>:11434"
-ollama_model: "qwen3.5:35b"
-```
-
-Make sure port 11434 is open in the server's firewall.
-
----
-
-## 11. Optional: Install Datasets
-
-The [airecon-dataset](https://github.com/pikpikcu/airecon-dataset) package gives the agent access to a local security knowledge base (~1.09M indexed records, 13 datasets) via the `dataset_search` tool. This is optional — AIRecon works without it.
+### Database migration failed
 
 ```bash
-git clone https://github.com/pikpikcu/airecon-dataset.git
-cd airecon-dataset
+# Reset and re-migrate
+docker compose down -v
+docker compose up --build
 
-# Install Python dependencies for the installer
-pip install huggingface_hub tqdm pyarrow
-
-# Install all datasets (~2.4 GB download, ~2 GB installed)
-python install.py
-
-# Or install only specific datasets
-python install.py --include nuclei-templates red-team-offensive apt-privesc
-
-# Verify
-python install.py installed
+# Or manually:
+docker compose exec api python -m prisma db push
 ```
 
-Restart AIRecon after installing — the `dataset_search` tool picks up new databases automatically.
+### Docker sandbox not building
 
-**What gets installed:**
-
-| Dataset | Records | Use case |
-|---------|---------|---------|
-| Pentest Agent (ChatML) | 322,433 | CVE-based exploitation workflows |
-| CTF SaTML 2024 | 190,657 | Real attack/defense CTF data |
-| CTF Instruct | 141,182 | Pwn, web, crypto, forensics |
-| Cybersecurity CVE | 124,732 | CVE analysis and exploitation |
-| SQL Injection Q&A | 50,632 | Conversational SQLi techniques |
-| Red Team Offensive | 78,430 | Lateral movement, privilege escalation |
-| Cybersecurity Fenrir | 83,918 | Attack/defense instruction pairs |
-| Cybersecurity Q&A | 53,199 | General security knowledge |
-| StackExchange RE | 20,641 | Binary analysis, reverse engineering |
-| Nuclei Templates | 23,180 | Nuclei YAML template generation |
-| NVD Security Instructions | 2,063 | Structured CVE analysis |
-| APT Privilege Escalation | 1,000 | Linux priv esc with APT tactics |
-| Bug Bounty & Pentest | 146 | Payloads, bypass methods, methodology |
-
-See [Features: Local Knowledge Base](features.md#local-knowledge-base) for how the agent uses this.
-
----
-
-## 12. Troubleshooting
-
-### `airecon: command not found`
-`~/.local/bin` is not in PATH. Follow [Step 5](#5-configure-path).
-
-### `ollama: connection refused`
-Ollama is not running. Start it: `ollama serve` or `sudo systemctl start ollama`.
-
-### `docker: Cannot connect to the Docker daemon`
-Docker daemon is not running: `sudo systemctl start docker`.
-
-### `airecon-sandbox` image not found at startup
-Build manually: `docker build -t airecon-sandbox airecon/containers/`
-
-### `Model not found` / model name mismatch
-Run `ollama list` and copy the exact model name (including tag) into `ollama_model` in config.
-
-### `Ollama returned HTML error page` / server crashed
-
-**Root cause:** Ollama ran out of VRAM and crashed. When this happens, Ollama's HTTP server returns an HTML error page instead of a JSON response, which AIRecon cannot parse.
-
-This is the most common error on sessions with long context history or when running large models near VRAM limits.
-
-**Why it happens:**
-- The KV cache (conversation history) grows with each iteration — a 500-iteration session can consume 2–4× more VRAM than the initial load
-- `ollama_num_ctx: 65536` with a 32B model requires ~6–8 GB VRAM just for the KV cache, on top of model weights
-- Spawning parallel agents (`run_parallel_agents`) doubles or triples VRAM usage simultaneously
-
-**Fix in order of preference:**
-
-**1. Restart Ollama immediately (quick fix):**
 ```bash
-sudo systemctl restart ollama
-# or if running manually:
-pkill ollama && ollama serve &
+# Build manually
+docker build -t airecon-sandbox airecon/containers/
 ```
 
-**2. Reduce context window (permanent fix):**
-```json
-{
-    "ollama_num_ctx": 32768,
-    "ollama_num_ctx_small": 16384
-}
-```
+### Playwright browser missing (local mode)
 
-**3. Reduce max output tokens:**
-```yaml
-ollama_num_predict: 8192
-```
-
-**4. Shorten model keep-alive to free VRAM between sessions:**
-```yaml
-ollama_keep_alive: "5m"
-```
-
-**5. Limit parallel agent concurrency** — avoid `run_parallel_agents` if VRAM is near the limit. Use `spawn_agent` (single specialist) instead.
-
-**Recommended safe config for 16–20 GB VRAM:**
-```yaml
-ollama_model: "qwen3.5:35b"
-ollama_num_ctx: 32768
-ollama_num_ctx_small: 16384
-ollama_num_predict: 8192
-ollama_keep_alive: "10m"
-```
-
-> The agent uses periodic context compression, so reducing `ollama_num_ctx` usually has limited impact on long session quality.
-
-### Context length error / out of memory (VRAM)
-Lower `ollama_num_ctx` in config:
-```yaml
-ollama_num_ctx: 32768
-```
-Or use a smaller model. See the `Ollama returned HTML error page` section above for a complete diagnosis.
-
-### Playwright error: `executable doesn't exist`
-Reinstall Playwright browsers:
 ```bash
-cd airecon
-poetry run playwright install chromium
+source .venv/bin/activate
+python -m playwright install chromium
 ```
 
-### `Connection timeout` to Ollama during long scans
-Increase `ollama_timeout` in config (default 1900s should be sufficient for most models):
-```json
-"ollama_timeout": 3600.0
-```
+### Ollama OOM errors
 
-### Poetry install fails with dependency conflicts
+Reduce context window in scan config:
 ```bash
-# Clean Poetry environment and retry
-poetry env remove python3
-poetry install
+curl -X POST http://localhost:8000/api/scans \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target": "example.com",
+    "config": {
+      "llm_context_length": 32768,
+      "llm_max_tokens": 8192
+    }
+  }'
 ```

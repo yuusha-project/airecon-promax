@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "airecon"
 description = "AI-powered security reconnaissance: OpenAI-compatible LLM + Kali Linux Docker sandbox + REST API"
-version = "0.1.7-beta"
+version = "0.2.0-beta"
 homepage = "https://github.com/pikpikcu/airecon"
 license = "MIT"
 authors = ["pikpikcu"]
