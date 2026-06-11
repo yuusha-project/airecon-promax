@@ -19,7 +19,7 @@ _CONFIG_SCHEMA: dict[str, tuple[Any, str]] = {
         "OpenAI-compatible API endpoint. For Ollama: http://127.0.0.1:11434/v1. For OpenAI: https://api.openai.com/v1. For OpenRouter: https://openrouter.ai/api/v1",
     ),
     "llm_model": (
-        "qwen3-coder-480b-a35b-instruct",
+        "dahono/deepseek-v4-pro",
         "Model name. For Ollama: qwen3.5:35b. For OpenAI: gpt-4o. For OpenRouter: anthropic/claude-3.5-sonnet",
     ),
     "llm_api_key": (
