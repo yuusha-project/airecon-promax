@@ -1,0 +1,119 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator db {
+  provider             = "prisma-client-py"
+  interface            = "asyncio"
+  recursive_type_depth = 5
+}
+
+model Scan {
+  id        String   @id @default(cuid())
+  target    String
+  status    ScanStatus @default(PENDING)
+  phase     String   @default("RECON")
+  config    Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  startedAt DateTime?
+  finishedAt DateTime?
+  error     String?
+
+  findings    Finding[]
+  subdomains  Subdomain[]
+  ports       Port[]
+  toolCalls   ToolCall[]
+
+  @@index([status])
+  @@index([target])
+}
+
+enum ScanStatus {
+  PENDING
+  RUNNING
+  PAUSED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model Finding {
+  id          String   @id @default(cuid())
+  scanId      String
+  scan        Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  title       String
+  severity    Severity @default(INFO)
+  confidence  Float    @default(0.0)
+  category    String   @default("")
+  url         String   @default("")
+  endpoint    String   @default("")
+  parameter   String   @default("")
+  method      String   @default("")
+  description String   @default("")
+  evidence    Json?
+  proof       Json?
+  remediation String   @default("")
+  cve         String?
+  flag        String?
+  verified    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([scanId])
+  @@index([severity])
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+model Subdomain {
+  id        String   @id @default(cuid())
+  scanId    String
+  scan      Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  domain    String
+  alive     Boolean  @default(false)
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@unique([scanId, domain])
+  @@index([scanId])
+}
+
+model Port {
+  id        String   @id @default(cuid())
+  scanId    String
+  scan      Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  host      String
+  port      Int
+  protocol  String   @default("tcp")
+  service   String   @default("")
+  state     String   @default("open")
+  createdAt DateTime @default(now())
+
+  @@unique([scanId, host, port, protocol])
+  @@index([scanId])
+}
+
+model ToolCall {
+  id         String   @id @default(cuid())
+  scanId     String
+  scan       Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  tool       String
+  args       Json?
+  result     String?
+  success    Boolean  @default(false)
+  phase      String   @default("RECON")
+  durationMs Int      @default(0)
+  tokensUsed Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@index([scanId])
+  @@index([tool])
+}
