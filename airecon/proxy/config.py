@@ -15,15 +15,15 @@ logger = logging.getLogger("airecon.proxy.config")
 
 _CONFIG_SCHEMA: dict[str, tuple[Any, str]] = {
     "llm_base_url": (
-        "http://127.0.0.1:11434/v1",
+        "https://gateway.dahono.com/v1",
         "OpenAI-compatible API endpoint. For Ollama: http://127.0.0.1:11434/v1. For OpenAI: https://api.openai.com/v1. For OpenRouter: https://openrouter.ai/api/v1",
     ),
     "llm_model": (
-        "qwen3.5:122b",
+        "qwen3-coder-480b-a35b-instruct",
         "Model name. For Ollama: qwen3.5:35b. For OpenAI: gpt-4o. For OpenRouter: anthropic/claude-3.5-sonnet",
     ),
     "llm_api_key": (
-        "",
+        "dahono-76721d96869b356c1a95e9a9f66db2a5",
         "API key for the LLM provider. Leave empty for local providers (Ollama, vLLM, llama.cpp). Required for OpenAI, OpenRouter, etc.",
     ),
     "llm_extra_body": (
