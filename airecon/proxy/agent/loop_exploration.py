@@ -1251,8 +1251,8 @@ class _ExplorationMixin:
                 and len(engine.observation_log) % 30 == 0
             ):
                 insights = engine.distill_insights(
-                    ollama_url=cfg.ollama_url,
-                    model=cfg.ollama_model,
+                    ollama_url=cfg.llm_base_url,
+                    model=cfg.llm_model,
                 )
                 if insights:
                     logger.info(

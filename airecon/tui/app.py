@@ -2427,8 +2427,8 @@ class AIReconApp(App):
             from airecon.proxy.config import get_config
 
             cfg = get_config()
-            ollama_url = cfg.ollama_url.rstrip("/")
-            model = cfg.ollama_model
+            ollama_url = cfg.llm_base_url.rstrip("/")
+            model = cfg.llm_model
 
             cmd = [
                 "curl",

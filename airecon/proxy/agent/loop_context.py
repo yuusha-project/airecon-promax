@@ -395,7 +395,7 @@ class _ContextMixin:
             self._fit_num_predict_to_ctx(num_predict, num_ctx)
             if num_predict is not None
             else self._fit_num_predict_to_ctx(
-                getattr(cfg, "ollama_num_predict", 32768), num_ctx
+                getattr(cfg, "llm_max_tokens", 32768), num_ctx
             )
         )
 

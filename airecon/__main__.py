@@ -251,14 +251,14 @@ def _run_status(args) -> None:
 
         ollama_status = OFF
         model_names: list[str] = []
-        active_model = cfg.ollama_model
+        active_model = cfg.llm_model
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 try:
-                    resp = await client.get(f"{cfg.ollama_url}/api/tags")
+                    resp = await client.get(f"{cfg.llm_base_url}/models")
                     resp.raise_for_status()
                 except Exception:
-                    resp = await client.get(f"{cfg.ollama_url}/api-tags")
+                    resp = await client.get(f"{cfg.llm_base_url}/models")
                     resp.raise_for_status()
 
                 models = resp.json().get("models", [])
@@ -269,7 +269,7 @@ def _run_status(args) -> None:
 
         print(_row())
         print(_row(f"  {B}Ollama{X}        {ollama_status}"))
-        print(_row(f"  {D}Endpoint:{X}     {cfg.ollama_url}"))
+        print(_row(f"  {D}Endpoint:{X}     {cfg.llm_base_url}"))
         print(_row(f"  {D}Active Model:{X} {Y}{active_model}{X}"))
         if model_names:
             label = f"  {D}Available:{X}    "
@@ -450,7 +450,7 @@ def _unload_model_safely():
         return
 
     proxy_url = f"http://{cfg.proxy_host}:{cfg.proxy_port}"
-    model = cfg.ollama_model
+    model = cfg.llm_model
     _docker = shutil.which("docker") or "docker"
     session_info: dict = {}
     agent_stats: dict = {}
@@ -579,7 +579,7 @@ def _unload_model_safely():
 
     print(_row(f"  {D}Unloading model…{X}"), end="\r", flush=True)
     try:
-        ollama_url = cfg.ollama_url.rstrip("/")
+        ollama_url = cfg.llm_base_url.rstrip("/")
         cmd = [
             "curl",
             "-s",
@@ -596,7 +596,7 @@ def _unload_model_safely():
         try:
             data = json.dumps({"model": model, "keep_alive": 0}).encode()
             req = urllib.request.Request(
-                f"{cfg.ollama_url.rstrip('/')}/api/generate", data=data, method="POST"
+                f"{cfg.llm_base_url.rstrip('/')}/api/generate", data=data, method="POST"
             )
             urllib.request.urlopen(req, timeout=2)  # nosec B310
         except Exception as e:

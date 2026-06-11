@@ -18,63 +18,71 @@ APP_DIR_NAME = ".airecon"
 CONFIG_FILENAME = "config.yaml"
 
 _CONFIG_SCHEMA: dict[str, tuple[Any, str]] = {
-    "ollama_url": (
-        "http://127.0.0.1:11434",
-        "Ollama API endpoint. REQUIRED — must be set. For local: http://127.0.0.1:11434. For remote: http://IP:11434",
+    "llm_base_url": (
+        "http://127.0.0.1:11434/v1",
+        "OpenAI-compatible API endpoint. For Ollama: http://127.0.0.1:11434/v1. For OpenAI: https://api.openai.com/v1. For OpenRouter: https://openrouter.ai/api/v1",
     ),
-    "ollama_model": (
+    "llm_model": (
         "qwen3.5:122b",
-        "Model to use. 122B for best reasoning (requires 60GB+ VRAM). For 12GB VRAM: use qwen2.5:7b or smaller. For 8GB VRAM: use qwen2.5:1.8b.",
+        "Model name. For Ollama: qwen3.5:35b. For OpenAI: gpt-4o. For OpenRouter: anthropic/claude-3.5-sonnet",
     ),
-    "ollama_timeout": (
+    "llm_api_key": (
+        "",
+        "API key for the LLM provider. Leave empty for local providers (Ollama, vLLM, llama.cpp). Required for OpenAI, OpenRouter, etc.",
+    ),
+    "llm_extra_body": (
+        {},
+        "Extra body parameters for provider-specific features. E.g. {'reasoning_effort': 'low'} for OpenAI reasoning models, {'think': true} for Ollama.",
+    ),
+    "llm_timeout": (
         180.0,
         "Total request timeout (seconds). 180s = 3 min. Stable for most models. Increase to 300s for slow remote servers or 122B models.",
     ),
-    "ollama_chunk_timeout": (
+    "llm_chunk_timeout": (
         180.0,
         "Per-chunk stream timeout (seconds). 180s stable for most models. Increase to 240s for 122B model prefill over network or slow connections.",
     ),
-    "ollama_num_ctx": (
+    "llm_context_length": (
         65536,
         "Context window size. 65536 = 64K (stable for 12GB VRAM with 8B models). 131072 = 128K requires 30GB+ VRAM. Set -1 for server default.",
     ),
-    "ollama_num_ctx_small": (
+    "llm_context_length_small": (
         32768,
         "Context for CTF/summary mode. 32768 = 32K (stable for 12GB VRAM). Reduced from 64K for stability with 8B+ models.",
     ),
-    "ollama_temperature": (
+    "llm_temperature": (
         0.15,
         "LLM output randomness. 0.0=deterministic, 0.15=recommended (strict), 0.3=creative. Does NOT affect thinking mode — controls output diversity only.",
     ),
-    "ollama_num_predict": (
+    "llm_max_tokens": (
         16384,
         "Max tokens to generate. 16384 = 16K (stable for 12GB VRAM). 32K requires more VRAM.",
     ),
-    "ollama_enable_thinking": (
+    "llm_enable_thinking": (
         True,
         "Enable extended thinking mode (for Qwen3.5+/Qwen2.5+). When enabled, model generates <think> reasoning blocks before answering.",
     ),
-    "ollama_thinking_mode": (
+    "llm_thinking_mode": (
         "low",
         "Thinking intensity: low|medium|high|adaptive. For 12GB VRAM: use 'low' or 'medium'. 'high' may cause OOM with 8B models. Low=only deep tools, Medium=ANALYSIS+deep tools, High=most iterations (high VRAM only).",
     ),
-    "ollama_supports_thinking": (
+    "llm_supports_thinking": (
         True,
         "Auto-detected: model supports <think> blocks. Set false for older models without thinking support.",
     ),
-    "ollama_supports_native_tools": (
+    "llm_supports_native_tools": (
         True,
         "Auto-detected: model supports native tool calling. Set false for models without tool-calling capability.",
     ),
-    "ollama_max_concurrent_requests": (
+    "llm_max_concurrent_requests": (
         1,
         "Max concurrent Ollama requests. Keep 1 for 8B+ models to prevent OOM. For 122B: MUST be 1.",
     ),
-    "ollama_num_keep": (
+    "llm_num_keep": (
         4096,
         "Protect first N tokens from KV eviction. 4096 = 4K (reduced for 12GB VRAM stability). 8K for larger VRAM.",
     ),
-    "ollama_repeat_penalty": (
+    "llm_repeat_penalty": (
         1.05,
         "Prevent repetition loops. 1.05 = mild. Range: 1.0–1.2.",
     ),
@@ -158,7 +166,7 @@ _CONFIG_SCHEMA: dict[str, tuple[Any, str]] = {
         120,
         "Browser action timeout (seconds). 120s for modern heavy pages.",
     ),
-    "ollama_keep_alive": (
+    "llm_keep_alive": (
         -1,
         "How long to keep model in VRAM. -1 = forever, '60m' = 60 min, 0 = unload immediately.",
     ),
@@ -310,11 +318,11 @@ _CONFIG_SCHEMA: dict[str, tuple[Any, str]] = {
         15,
         "HTTP request timeout for observe/intercept tools in seconds.",
     ),
-    "ollama_status_timeout": (
+    "llm_status_timeout": (
         3.5,
         "Timeout for Ollama health check in seconds.",
     ),
-    "ollama_status_sticky_ok_seconds": (
+    "llm_status_sticky_ok_seconds": (
         120.0,
         "How long to consider Ollama 'healthy' after a successful check.",
     ),
@@ -712,23 +720,23 @@ DEFAULT_CONFIG = {key: value for key, (value, _) in _CONFIG_SCHEMA.items()}
 
 _CONFIG_CATEGORIES = [
     (
-        "Ollama Connection",
-        ["ollama_url", "ollama_model", "ollama_timeout", "ollama_chunk_timeout"],
+        "LLM Provider",
+        ["llm_base_url", "llm_model", "llm_timeout", "llm_chunk_timeout"],
     ),
     (
-        "Ollama Model Settings",
+        "LLM Model Settings",
         [
-            "ollama_num_ctx",
-            "ollama_num_ctx_small",
-            "ollama_temperature",
-            "ollama_num_predict",
-            "ollama_enable_thinking",
-            "ollama_thinking_mode",
-            "ollama_supports_thinking",
-            "ollama_supports_native_tools",
-            "ollama_max_concurrent_requests",
-            "ollama_num_keep",
-            "ollama_repeat_penalty",
+            "llm_context_length",
+            "llm_context_length_small",
+            "llm_temperature",
+            "llm_max_tokens",
+            "llm_enable_thinking",
+            "llm_thinking_mode",
+            "llm_supports_thinking",
+            "llm_supports_native_tools",
+            "llm_max_concurrent_requests",
+            "llm_num_keep",
+            "llm_repeat_penalty",
         ],
     ),
     ("Proxy Server", ["proxy_host", "proxy_port"]),
@@ -754,7 +762,7 @@ _CONFIG_CATEGORIES = [
     ),
     ("Safety", ["allow_destructive_testing"]),
     ("Browser", ["browser_page_load_delay", "browser_action_timeout"]),
-    ("Ollama Keep-Alive", ["ollama_keep_alive"]),
+    ("LLM Keep-Alive", ["llm_keep_alive"]),
     ("SearXNG", ["searxng_url", "searxng_engines"]),
     ("Deduplication", ["vuln_similarity_threshold", "evidence_similarity_threshold"]),
     (
@@ -851,8 +859,8 @@ _CONFIG_CATEGORIES = [
     (
         "Health Checks",
         [
-            "ollama_status_timeout",
-            "ollama_status_sticky_ok_seconds",
+            "llm_status_timeout",
+            "llm_status_sticky_ok_seconds",
         ],
     ),
     (
@@ -990,16 +998,17 @@ def get_workspace_root() -> Path:
 _ESSENTIAL_CONFIG_KEYS: set[str] = {
     "proxy_host",
     "proxy_port",
-    "ollama_url",
-    "ollama_model",
-    "ollama_timeout",
-    "ollama_num_ctx",
-    "ollama_num_ctx_small",
-    "ollama_num_predict",
-    "ollama_num_keep",
-    "ollama_temperature",
-    "ollama_enable_thinking",
-    "ollama_thinking_mode",
+    "llm_base_url",
+    "llm_model",
+    "llm_api_key",
+    "llm_timeout",
+    "llm_context_length",
+    "llm_context_length_small",
+    "llm_max_tokens",
+    "llm_num_keep",
+    "llm_temperature",
+    "llm_enable_thinking",
+    "llm_thinking_mode",
     "command_timeout",
     "docker_memory_limit",
     "deep_recon_autostart",
@@ -1091,27 +1100,30 @@ def _write_yaml_with_comments(config: dict, filepath: Path) -> None:
 
 @dataclass(frozen=True)
 class Config:
-    ollama_url: str
-    ollama_model: str
+    llm_base_url: str
+    llm_model: str
 
     proxy_host: str
     proxy_port: int
 
-    ollama_timeout: float
-    ollama_chunk_timeout: float
+    llm_timeout: float
+    llm_chunk_timeout: float
     command_timeout: float
 
-    ollama_num_ctx: int
-    ollama_num_ctx_small: int
-    ollama_temperature: float
-    ollama_num_predict: int
-    ollama_enable_thinking: bool
-    ollama_thinking_mode: str
-    ollama_supports_thinking: bool
-    ollama_supports_native_tools: bool
-    ollama_max_concurrent_requests: int
-    ollama_num_keep: int
-    ollama_repeat_penalty: float
+    llm_context_length: int
+    llm_context_length_small: int
+    llm_temperature: float
+    llm_max_tokens: int
+    llm_enable_thinking: bool
+    llm_thinking_mode: str
+    llm_supports_thinking: bool
+    llm_supports_native_tools: bool
+    llm_max_concurrent_requests: int
+    llm_num_keep: int
+    llm_repeat_penalty: float
+
+    llm_api_key: str
+    llm_extra_body: dict
 
     docker_image: str
     docker_auto_build: bool
@@ -1140,7 +1152,7 @@ class Config:
 
     browser_action_timeout: int
 
-    ollama_keep_alive: int | str
+    llm_keep_alive: int | str
 
     searxng_url: str
     searxng_engines: str
@@ -1200,8 +1212,8 @@ class Config:
     rate_limiter_http_timeout: int
     rate_limiter_abort_threshold: int
     observe_request_timeout: int
-    ollama_status_timeout: float
-    ollama_status_sticky_ok_seconds: float
+    llm_status_timeout: float
+    llm_status_sticky_ok_seconds: float
     mcp_probe_timeout: float
     mcp_tools_list_timeout: float
     caido_token_timeout: float
@@ -1446,16 +1458,16 @@ class Config:
 
         _BOUNDS_RULES: dict[str, tuple[float | None, float | None]] = {
             # LLM config
-            "ollama_temperature": (0.0, 1.2),
-            "ollama_num_predict": (64, 65536),
-            "ollama_num_ctx": (-1, 262144),
-            "ollama_num_ctx_small": (2048, 131072),
-            "ollama_repeat_penalty": (1.0, 1.5),
-            "ollama_num_keep": (0, 32768),
-            "ollama_max_concurrent_requests": (1, 8),
+            "llm_temperature": (0.0, 1.2),
+            "llm_max_tokens": (64, 65536),
+            "llm_context_length": (-1, 262144),
+            "llm_context_length_small": (2048, 131072),
+            "llm_repeat_penalty": (1.0, 1.5),
+            "llm_num_keep": (0, 32768),
+            "llm_max_concurrent_requests": (1, 8),
             # Timeouts
-            "ollama_timeout": (10.0, 1800.0),
-            "ollama_chunk_timeout": (30.0, 1200.0),
+            "llm_timeout": (10.0, 1800.0),
+            "llm_chunk_timeout": (30.0, 1200.0),
             "command_timeout": (30.0, 7200.0),
             "per_tool_timeout_seconds": (10.0, 3600.0),
             "response_timing_alert_threshold_ms": (1000, 300000),
@@ -1541,8 +1553,8 @@ class Config:
             # Misc
             "waf_bypass_timeout": (5, 300),
             "observe_request_timeout": (5, 120),
-            "ollama_status_timeout": (1.0, 30.0),
-            "ollama_status_sticky_ok_seconds": (10.0, 600.0),
+            "llm_status_timeout": (1.0, 30.0),
+            "llm_status_sticky_ok_seconds": (10.0, 600.0),
             "mcp_probe_timeout": (5.0, 300.0),
             "mcp_tools_list_timeout": (5.0, 300.0),
             "caido_token_timeout": (0.5, 30.0),
@@ -1550,7 +1562,7 @@ class Config:
             "agent_context_reset_cooldown_seconds": (10.0, 3600.0),
             "browser_page_load_delay": (0.1, 10.0),
             "browser_action_timeout": (10, 180),
-            "ollama_keep_alive": (-1, 86400),
+            "llm_keep_alive": (-1, 86400),
             "agent_llm_compression_num_ctx": (1024, 65536),
             "agent_llm_compression_num_predict": (64, 4096),
         }
@@ -1560,7 +1572,7 @@ class Config:
             if bval is None:
                 continue
 
-            if bkey == "ollama_num_ctx" and bval == -1:
+            if bkey == "llm_context_length" and bval == -1:
                 logger.info(
                     "Config: ollama_num_ctx=-1 (unlimited) — using Ollama server default"
                 )
@@ -1588,10 +1600,10 @@ class Config:
         if merged.get("agent_max_conversation_messages") is None:
             try:
                 ctx_val = int(
-                    merged.get("ollama_num_ctx", DEFAULT_CONFIG["ollama_num_ctx"])
+                    merged.get("llm_context_length", DEFAULT_CONFIG["llm_context_length"])
                 )
             except (TypeError, ValueError):
-                ctx_val = int(DEFAULT_CONFIG["ollama_num_ctx"])
+                ctx_val = int(DEFAULT_CONFIG["llm_context_length"])
             merged["agent_max_conversation_messages"] = max(
                 100, min(10000, ctx_val // 128)
             )
@@ -1607,11 +1619,11 @@ class Config:
         merged["agent_recon_mode"] = recon_mode
 
         # Validate required fields
-        if not merged.get("ollama_url"):
+        if not merged.get("llm_base_url"):
             logger.error(
-                "ollama_url is REQUIRED. Set it in ~/.airecon/config.yaml "
-                "or via AIRECON_OLLAMA_URL environment variable. "
-                "Example: http://127.0.0.1:11434 or http://your-server:11434"
+                "llm_base_url is REQUIRED. Set it in ~/.airecon/config.yaml "
+                "or via AIRECON_LLM_BASE_URL environment variable. "
+                "Example: http://127.0.0.1:11434/v1 or https://api.openai.com/v1"
             )
 
         return cls(**merged)

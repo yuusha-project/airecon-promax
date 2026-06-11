@@ -336,7 +336,7 @@ class _MessageEntryMixin:
         _ctx_limit = (
             self._adaptive_num_ctx
             if self._adaptive_num_ctx > 0
-            else int(getattr(cfg, "ollama_num_ctx", 0) or 0)
+            else int(getattr(cfg, "llm_context_length", 0) or 0)
         )
         _ctx_used = int(self.state.token_usage.get("used", 0) or 0)
         if _ctx_used <= 0:

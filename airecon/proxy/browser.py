@@ -2636,9 +2636,9 @@ class BrowserTabManager:
         cfg = get_config()
 
         solver = CaptchaSolver(
-            ollama_url=cfg.ollama_url,
-            captcha_model=cfg.ollama_model,
-            timeout=cfg.ollama_timeout,
+            ollama_url=cfg.llm_base_url,
+            captcha_model=cfg.llm_model,
+            timeout=cfg.llm_timeout,
         )
 
         try:

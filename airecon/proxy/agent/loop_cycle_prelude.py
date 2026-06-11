@@ -439,7 +439,7 @@ class _CyclePreludeMixin:
                         from ..config import get_config
 
                         cfg = get_config()
-                        num_ctx = max(2048, min(4096, int(cfg.ollama_num_ctx) // 8))
+                        num_ctx = max(2048, min(4096, int(cfg.llm_context_length) // 8))
                     except Exception as exc:
                         logger.debug("Failed to resolve ollama_num_ctx: %s", exc)
                         num_ctx = 3072
@@ -1370,7 +1370,7 @@ class _CyclePreludeMixin:
             save_session(self._session)
 
         _presummary_ratio = self.state.token_usage.get("used", 0) / max(
-            self._adaptive_num_ctx or cfg.ollama_num_ctx, 1
+            self._adaptive_num_ctx or cfg.llm_context_length, 1
         )
         _model_name = str(getattr(getattr(self, "ollama", None), "model", "") or "").lower()
         _is_large_qwen = "qwen" in _model_name and any(
@@ -1409,7 +1409,7 @@ class _CyclePreludeMixin:
                     }
                 )
 
-        _cur_ctx_limit = self._adaptive_num_ctx or cfg.ollama_num_ctx
+        _cur_ctx_limit = self._adaptive_num_ctx or cfg.llm_context_length
         _cur_num_predict = self._get_iteration_num_predict(
             cfg, current_phase, _cur_ctx_limit
         )
@@ -1466,7 +1466,7 @@ class _CyclePreludeMixin:
             )
 
             _token_used = self.state.token_usage.get("used", 0)
-            _ctx_limit = self._adaptive_num_ctx or cfg.ollama_num_ctx
+            _ctx_limit = self._adaptive_num_ctx or cfg.llm_context_length
             if _token_used > _ctx_limit * 0.8:
                 logger.warning(
                     "Token limit exceeded (%d/%d) - forcing aggressive truncation",

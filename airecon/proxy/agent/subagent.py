@@ -153,7 +153,7 @@ class ParallelAgentRunner:
         ollama = self._ollama
         if ollama is None:
             cfg = get_config()
-            ollama = OllamaClient(model=cfg.ollama_model)
+            ollama = OllamaClient(model=cfg.llm_model)
             await ollama._async_init()
 
         semaphore = asyncio.Semaphore(self.max_concurrent)

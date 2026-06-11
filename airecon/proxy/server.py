@@ -417,7 +417,7 @@ async def lifespan(app: FastAPI):
 
     cfg = get_config()
     logger.info(f"Starting AIRecon Proxy on {cfg.proxy_host}:{cfg.proxy_port}")
-    logger.info(f"  Ollama: {cfg.ollama_url} (model: {cfg.ollama_model})")
+    logger.info(f"  Ollama: {cfg.llm_base_url} (model: {cfg.llm_model})")
     logger.info(f"  Docker image: {cfg.docker_image}")
 
     startup_failed = False
@@ -727,8 +727,8 @@ async def get_status() -> ORJSONResponse:
             "status": "ok" if (ollama_ok and docker_ok) else "degraded",
             "ollama": {
                 "connected": ollama_ok,
-                "url": cfg.ollama_url,
-                "model": cfg.ollama_model,
+                "url": cfg.llm_base_url,
+                "model": cfg.llm_model,
             },
             "docker": {
                 "connected": docker_ok,
@@ -771,12 +771,12 @@ async def get_health() -> JSONResponse:
                 "connected" if ok else "error"
             )
             health_status["components"]["ollama"]["details"] = {
-                "model": cfg.ollama_model
+                "model": cfg.llm_model
             }
         except asyncio.TimeoutError:
             health_status["components"]["ollama"]["status"] = "timeout"
             health_status["components"]["ollama"]["details"] = {
-                "model": cfg.ollama_model
+                "model": cfg.llm_model
             }
         except Exception as e:
             health_status["components"]["ollama"]["status"] = "error"
@@ -1323,7 +1323,7 @@ async def _stream_agent_events(message: str, trace_id: str) -> AsyncIterator[dic
                 "queue_size": queue.qsize(),
                 "agent_task_done": _agent_task.done() if _agent_task else False,
                 "engine_connected": bool(engine.is_connected) if engine else False,
-                "ollama_initialized": bool(ollama_client),
+                "llm_initialized": bool(ollama_client),
                 "active_tool_count": _active_tool_count,
                 "active_tool": _last_tool_name,
                 "waiting_user_input": _waiting_user_input,

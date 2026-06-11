@@ -1617,7 +1617,7 @@ class MemoryManager:
                 from airecon.proxy.config import get_config
 
                 cfg = get_config()
-                model = (cfg.ollama_model if cfg else "") or ""
+                model = (cfg.llm_model if cfg else "") or ""
                 logger.debug("Config loaded: ollama_model=%s", model or None)
                 if model:
                     return model

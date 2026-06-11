@@ -306,7 +306,7 @@ class _ToolCycleMixin(_CyclePreludeMixin, _CycleLlmMixin, _CyclePostMixin):
                     type="error",
                     data={
                         "message": "Ollama runner failure detected. Stop run to avoid freeze.",
-                        "reason": "ollama_runner_fatal",
+                        "reason": "llm_runner_fatal",
                         "details": fatal_ollama_error,
                     },
                 )
@@ -360,7 +360,7 @@ class _ToolCycleMixin(_CyclePreludeMixin, _CycleLlmMixin, _CyclePostMixin):
             adaptive_num_ctx = (
                 self._adaptive_num_ctx
                 if self._adaptive_num_ctx > 0
-                else cfg.ollama_num_ctx
+                else cfg.llm_context_length
             )
 
             if adaptive_num_ctx == -1:
@@ -675,13 +675,13 @@ class _ToolCycleMixin(_CyclePreludeMixin, _CycleLlmMixin, _CyclePostMixin):
                 type="progress",
                 data={
                     "message": f"Waiting for model response (iteration {self.state.iteration})...",
-                    "stage": "ollama_inference",
+                    "stage": "llm_inference",
                 },
             )
 
             for _stream_attempt in range(6):
                 try:
-                    _requested_num_keep = self._cfg_int(cfg, "ollama_num_keep", 8192)
+                    _requested_num_keep = self._cfg_int(cfg, "llm_num_keep", 8192)
                     _safe_num_keep = self._fit_num_keep_to_ctx(
                         _requested_num_keep,
                         adaptive_num_ctx,
@@ -720,7 +720,7 @@ class _ToolCycleMixin(_CyclePreludeMixin, _CycleLlmMixin, _CyclePostMixin):
                         )
                         _trace_chat_event(
                             trace_id,
-                            "ollama_stream_start",
+                            "llm_stream_start",
                             iteration=self.state.iteration,
                         )
                     logger.info(
@@ -734,7 +734,7 @@ class _ToolCycleMixin(_CyclePreludeMixin, _CycleLlmMixin, _CyclePostMixin):
                     _ollama_stream_start = time.monotonic()
                     _first_chunk_logged = False
                     _last_chunk_time = time.monotonic()
-                    _CHUNK_TIMEOUT = cfg.ollama_chunk_timeout
+                    _CHUNK_TIMEOUT = cfg.llm_chunk_timeout
 
                     _stream_gen = self.ollama.chat_stream(
                         messages=self._messages_for_ollama(),
@@ -745,7 +745,7 @@ class _ToolCycleMixin(_CyclePreludeMixin, _CycleLlmMixin, _CyclePostMixin):
                             "num_predict": adaptive_num_predict,
                             "num_keep": _safe_num_keep,
                             "repeat_penalty": self._cfg_float(
-                                cfg, "ollama_repeat_penalty", 1.05
+                                cfg, "llm_repeat_penalty", 1.05
                             ),
                         },
                         think=self._should_use_thinking(cfg, current_phase),
@@ -903,15 +903,15 @@ class _ToolCycleMixin(_CyclePreludeMixin, _CycleLlmMixin, _CyclePostMixin):
                         self._vram_crash_count += 1
                         _vram_retries_this_iter += 1
                         if self._vram_crash_count == 1:
-                            _new_ctx = cfg.ollama_num_ctx_small
+                            _new_ctx = cfg.llm_context_length_small
                             _max_msgs = 80
                             _wait_s = 0
                         elif self._vram_crash_count == 2:
-                            _new_ctx = max(4096, cfg.ollama_num_ctx_small // 2)
+                            _new_ctx = max(4096, cfg.llm_context_length_small // 2)
                             _max_msgs = 50
                             _wait_s = 5
                         elif self._vram_crash_count == 3:
-                            _new_ctx = max(4096, cfg.ollama_num_ctx_small // 4)
+                            _new_ctx = max(4096, cfg.llm_context_length_small // 4)
                             _max_msgs = 30
                             _wait_s = 10
                         else:
@@ -1092,8 +1092,8 @@ class _ToolCycleMixin(_CyclePreludeMixin, _CycleLlmMixin, _CyclePostMixin):
                         )
                     elif "model not found" in err_lower or "pull" in err_lower:
                         error_msg = (
-                            f"Model not found: {cfg.ollama_model}\n"
-                            f"Fix: run `ollama pull {cfg.ollama_model}`."
+                            f"Model not found: {cfg.llm_model}\n"
+                            f"Fix: run `ollama pull {cfg.llm_model}`."
                         )
                     elif "context length" in err_lower or "out of memory" in err_lower:
                         error_msg = "Model ran out of context or memory.\nFix: lower `ollama_num_ctx` in config (e.g. 32768)."

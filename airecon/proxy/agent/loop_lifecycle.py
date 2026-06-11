@@ -527,7 +527,7 @@ Current workflow: Follow phase transitions (RECON→ANALYSIS→EXPLOIT→REPORT)
                 ctf_mode = getattr(self, "_ctf_mode", False)
 
                 if ctf_mode:
-                    ctx_limit = getattr(cfg, "ollama_num_ctx_small", 65536)
+                    ctx_limit = getattr(cfg, "llm_context_length_small", 65536)
                     threshold = int(ctx_limit * 0.70)  # 45875 tokens
                 else:
                     ctx_limit = _CONTEXT_RESET_THRESHOLD
