@@ -139,6 +139,17 @@ ok "Database migrated"
 $COMPOSE up --build -d db api || fail "Failed to start services"
 ok "Services started"
 
+# Build Kali sandbox image (required for tool execution)
+if ! docker image inspect airecon-sandbox &>/dev/null; then
+    echo ""
+    info "Building Kali sandbox image (first time — takes 10-20 minutes)..."
+    docker build -t airecon-sandbox airecon/containers/ \
+        || echo -e "  ${RED}✗${NC} Kali sandbox build failed — agent cannot execute tools"
+    ok "Kali sandbox image built"
+else
+    ok "Kali sandbox image exists"
+fi
+
 # ── Wait for health ──────────────────────────────────────────────────────
 
 API_PORT=$(grep -oP 'API_PORT=\K[0-9]+' .env 2>/dev/null || echo 8000)

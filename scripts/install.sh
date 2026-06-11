@@ -121,6 +121,17 @@ install_docker() {
         || fail "Failed to start services"
     ok "Services started"
 
+    # Build Kali sandbox image (required for tool execution)
+    if ! docker image inspect airecon-sandbox &>/dev/null; then
+        echo ""
+        info "Building Kali sandbox image (first time — takes 10-20 minutes)..."
+        docker build -t airecon-sandbox airecon/containers/ \
+            || warn "Kali sandbox build failed — agent cannot execute tools until this image exists"
+        ok "Kali sandbox image built"
+    else
+        ok "Kali sandbox image exists"
+    fi
+
     # Wait for API
     echo ""
     info "Waiting for API to become healthy..."
@@ -244,6 +255,22 @@ install_local() {
     python -m prisma db push --skip-generate 2>/dev/null \
         || warn "Migration failed — ensure PostgreSQL is running and DATABASE_URL is correct"
     ok "Migrations applied"
+
+    # Build Kali sandbox image (required for tool execution)
+    if command -v docker &>/dev/null; then
+        if ! docker image inspect airecon-sandbox &>/dev/null; then
+            echo ""
+            info "Building Kali sandbox image (first time — takes 10-20 minutes)..."
+            docker build -t airecon-sandbox airecon/containers/ \
+                || warn "Kali sandbox build failed — agent cannot execute tools until this image exists"
+            ok "Kali sandbox image built"
+        else
+            ok "Kali sandbox image exists"
+        fi
+    else
+        warn "Docker not found — Kali sandbox image required for tool execution"
+        echo -e "    ${MUTED}Install Docker, then run: docker build -t airecon-sandbox airecon/containers/${NC}"
+    fi
 
     echo ""
     echo -e "  ${BOLD}${GREEN}Installation complete!${NC}"
