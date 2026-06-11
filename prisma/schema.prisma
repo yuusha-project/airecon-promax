@@ -9,6 +9,13 @@ generator db {
   recursive_type_depth = 5
 }
 
+model Setting {
+  key       String   @id
+  value     Json
+  category  String   @default("")
+  updatedAt DateTime @updatedAt
+}
+
 model Scan {
   id        String   @id @default(cuid())
   target    String

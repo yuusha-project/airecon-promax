@@ -11,12 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 logger = logging.getLogger("airecon.proxy.config")
-
-APP_DIR_NAME = ".airecon"
-CONFIG_FILENAME = "config.yaml"
 
 _CONFIG_SCHEMA: dict[str, tuple[Any, str]] = {
     "llm_base_url": (
@@ -953,8 +948,6 @@ _CONFIG_CATEGORIES = [
 _workspace_root_cache: Path | None = None
 _workspace_root_lock = threading.Lock()
 
-_config_reload_lock: asyncio.Lock | None = None
-
 
 def get_workspace_root() -> Path:
     global _workspace_root_cache
@@ -968,7 +961,7 @@ def get_workspace_root() -> Path:
                 candidates.extend(
                     [
                         Path.cwd() / "workspace",
-                        Path.home() / APP_DIR_NAME / "workspace",
+                        Path.home() / ".airecon" / "workspace",
                         Path(tempfile.gettempdir()) / "airecon-workspace",
                     ]
                 )
@@ -991,112 +984,6 @@ def get_workspace_root() -> Path:
                         "Set AIRECON_WORKSPACE to a writable path."
                     )
     return _workspace_root_cache
-
-
-# ── Essential keys that get written to config.yaml ──────────────────────────
-# Only these are written to config.yaml. All other values stay as defaults
-# in config.py to keep the config file clean and minimal.
-_ESSENTIAL_CONFIG_KEYS: set[str] = {
-    "proxy_host",
-    "proxy_port",
-    "llm_base_url",
-    "llm_model",
-    "llm_api_key",
-    "llm_timeout",
-    "llm_context_length",
-    "llm_context_length_small",
-    "llm_max_tokens",
-    "llm_num_keep",
-    "llm_temperature",
-    "llm_enable_thinking",
-    "llm_thinking_mode",
-    "command_timeout",
-    "docker_memory_limit",
-    "deep_recon_autostart",
-    "agent_recon_mode",
-    "allow_destructive_testing",
-}
-
-
-def _write_yaml_with_comments(config: dict, filepath: Path) -> None:
-    from airecon._version import __version__
-
-    filepath.parent.mkdir(parents=True, exist_ok=True)
-    lines = []
-
-    lines.append("#╔══════════════════════════════════════════════════════════╗")
-    lines.append("#║              AIRecon Configuration File                  ║")
-    lines.append("#║                                                          ║")
-    lines.append(f"#║  Version: {__version__:<46} ║")
-    lines.append("#║  Format: YAML (supports comments)                        ║")
-    lines.append("#║  Edit this file to customize AIRecon behavior            ║")
-    lines.append("#║                                                          ║")
-    lines.append("#║  Docs: https://github.com/pikpikcu/airecon               ║")
-    lines.append("#║                                                          ║")
-    lines.append("#║  NOTE: Only essential settings are written here.         ║")
-    lines.append("#║  All other values use sensible defaults in config.py.    ║")
-    lines.append("#╚══════════════════════════════════════════════════════════╝")
-    lines.append("")
-    lines.append("# Quick Start:")
-    lines.append("#   1. Check your VRAM and set appropriate model:")
-    lines.append("#      - 12GB VRAM: qwen2.5:7b or qwen2.5:1.8b (stable)")
-    lines.append("#      - 16GB VRAM: qwen2.5:14b or qwen3.5:32b")
-    lines.append("#      - 24GB+ VRAM: qwen3.5:70b")
-    lines.append("#      - 60GB+ VRAM: qwen3.5:122b")
-    lines.append("#   2. Context sizes (VRAM requirements):")
-    lines.append("#      - 32K (32768): 8GB VRAM stable (CTF mode)")
-    lines.append("#      - 64K (65536): 12GB VRAM stable (standard mode)")
-    lines.append("#      - 128K (131072): 30GB+ VRAM required")
-    lines.append("#   3. Set ollama_url for remote Ollama servers")
-    lines.append("#   4. Run: airecon start")
-    lines.append("")
-
-    # Only write essential keys
-    essential_keys = _ESSENTIAL_CONFIG_KEYS
-    written_keys: set[str] = set()
-
-    for category, keys in _CONFIG_CATEGORIES:
-        category_keys = [
-            k for k in keys if k in essential_keys and k not in written_keys
-        ]
-        if not category_keys:
-            continue
-
-        lines.append("")
-        lines.append(f"# {'=' * 38}")
-        lines.append(f"# {category}")
-        lines.append(f"# {'=' * 38}")
-
-        for key in category_keys:
-            if key in config:
-                value = config[key]
-                comment = _CONFIG_SCHEMA.get(key, ("", ""))[1]
-
-                # Skip caido URL — always use default
-                if key == "caido_graphql_url":
-                    continue
-
-                if isinstance(value, str):
-                    if value.startswith("http") or ":" in value or value == "":
-                        value_str = f'"{value}"'
-                    else:
-                        value_str = value
-                elif isinstance(value, bool):
-                    value_str = "true" if value else "false"
-                elif value is None:
-                    value_str = "null"
-                elif isinstance(value, float):
-                    value_str = str(value)
-                else:
-                    value_str = str(value)
-
-                if comment:
-                    lines.append(f"# {comment}")
-                lines.append(f"{key}: {value_str}")
-                written_keys.add(key)
-
-    with open(filepath, "w") as f:
-        f.write("\n".join(lines) + "\n")
 
 
 @dataclass(frozen=True)
@@ -1300,117 +1187,6 @@ class Config:
 
     per_tool_timeout_seconds: float
     response_timing_alert_threshold_ms: float
-
-    @classmethod
-    def load(cls, config_path: str | Path | None = None) -> Config:
-        if config_path:
-            config_file = Path(config_path).expanduser()
-            config_dir = config_file.parent
-            if not config_dir.exists():
-                config_dir.mkdir(parents=True, exist_ok=True)
-        else:
-            home_dir = Path.home()
-            config_dir = home_dir / APP_DIR_NAME
-            config_file = config_dir / CONFIG_FILENAME
-
-            if not config_dir.exists():
-                config_dir.mkdir(parents=True, exist_ok=True)
-
-        current_config: dict[str, Any] = {}
-        user_config: dict[str, Any] = {}
-
-        if config_file.exists():
-            try:
-                with open(config_file, "r") as f:
-                    loaded = yaml.safe_load(f)
-                    if loaded is None:
-                        logger.warning(
-                            "Config file %s is empty (got None). Rewriting with defaults.",
-                            config_file,
-                        )
-                        _write_yaml_with_comments(DEFAULT_CONFIG, config_file)
-                        logger.info("Config file reset to defaults at %s", config_file)
-                    elif isinstance(loaded, dict):
-                        user_config = loaded
-                    else:
-                        logger.error(
-                            "Config file %s is corrupt (expected YAML mapping, got %s). "
-                            "Rewriting with defaults.",
-                            config_file,
-                            type(loaded).__name__,
-                        )
-                        _write_yaml_with_comments(DEFAULT_CONFIG, config_file)
-                        logger.info("Config file reset to defaults at %s", config_file)
-                    current_config.update(user_config)
-            except Exception as e:
-                logger.error(
-                    "Failed to load config from %s: %s. "
-                    "Resetting to defaults and rewriting config file.",
-                    config_file,
-                    e,
-                )
-
-                try:
-                    _write_yaml_with_comments(DEFAULT_CONFIG, config_file)
-                    logger.info("Config file reset to defaults at %s", config_file)
-                except Exception as write_err:
-                    logger.error("Could not rewrite config file: %s", write_err)
-        else:
-            if config_path is None:
-                logger.info(
-                    f"No config found. Generating default config at {config_file}"
-                )
-                try:
-                    _write_yaml_with_comments(DEFAULT_CONFIG, config_file)
-                    logger.info(
-                        f"Generated config file: {config_file}\n"
-                        f"Edit this file to customize AIRecon. Comments included!"
-                    )
-                except Exception as e:
-                    logger.error("Failed to write default config: %s", e)
-            else:
-                logger.warning(
-                    f"Configuration file not found at {config_file}. Using default configuration settings."
-                )
-
-        for key in DEFAULT_CONFIG:
-            env_key = f"AIRECON_{key.upper()}"
-            if env_key in os.environ:
-                val = os.environ[env_key]
-                default_val = DEFAULT_CONFIG.get(key)
-                if isinstance(default_val, bool):
-                    current_config[key] = val.lower() in ("true", "1", "yes")
-                elif isinstance(default_val, int):
-                    try:
-                        current_config[key] = int(val)
-                    except (ValueError, TypeError):
-                        logger.warning(
-                            "AIRECON_%s env var %r is not a valid int — ignored",
-                            key.upper(),
-                            val,
-                        )
-                elif isinstance(default_val, float):
-                    try:
-                        current_config[key] = float(val)
-                    except (ValueError, TypeError):
-                        logger.warning(
-                            "AIRECON_%s env var %r is not a valid float — ignored",
-                            key.upper(),
-                            val,
-                        )
-                else:
-                    current_config[key] = val
-
-        explicit_cap = "AIRECON_AGENT_MAX_CONVERSATION_MESSAGES" in os.environ
-        if not explicit_cap and "agent_max_conversation_messages" in current_config:
-            configured_cap = current_config.get("agent_max_conversation_messages")
-            explicit_cap = (
-                configured_cap != DEFAULT_CONFIG["agent_max_conversation_messages"]
-            )
-        if not explicit_cap:
-            current_config["agent_max_conversation_messages"] = None
-
-        return cls.load_with_defaults(current_config)
 
     @classmethod
     def load_with_defaults(cls, raw: dict) -> Config:
@@ -1622,8 +1398,8 @@ class Config:
         # Validate required fields
         if not merged.get("llm_base_url"):
             logger.error(
-                "llm_base_url is REQUIRED. Set it in ~/.airecon/config.yaml "
-                "or via AIRECON_LLM_BASE_URL environment variable. "
+                "llm_base_url is REQUIRED. Set it via PUT /api/config "
+                "or AIRECON_LLM_BASE_URL environment variable. "
                 "Example: http://127.0.0.1:11434/v1 or https://api.openai.com/v1"
             )
 
@@ -1631,106 +1407,35 @@ class Config:
 
 
 _config: Config | None = None
-_config_mtime: float = 0.0
-_config_path: Path | None = None
 _config_init_lock = threading.Lock()
 
 
-def _get_config_path(config_path: str | Path | None = None) -> Path:
-    if config_path:
-        return Path(config_path).expanduser()
-    return Path.home() / APP_DIR_NAME / CONFIG_FILENAME
-
-
-def get_config(config_path: str | None = None) -> Config:
-    global _config, _config_mtime, _config_path
-
+def get_config(*_args, **_kwargs) -> Config:
     _override = _scan_config_var.get(None)
     if _override is not None:
         return _override
 
-    if _config_path is None:
-        _config_path = _get_config_path(config_path)
-
-    if _config is not None:
-        try:
-            try:
-                asyncio.get_running_loop()
-
-                global _config_reload_lock
-                if _config_reload_lock is None:
-                    _config_reload_lock = asyncio.Lock()
-
-            except RuntimeError:
-                pass
-
-            with _config_init_lock:
-                current_mtime = (
-                    _config_path.stat().st_mtime if _config_path.exists() else 0.0
-                )
-                if current_mtime > _config_mtime:
-                    logger.info("Config file changed — reloading from %s", _config_path)
-                    _config = Config.load(_config_path)
-                    _config_mtime = current_mtime
-        except Exception as e:
-            logger.debug("Expected failure in config reload check: %s", e)
-
+    global _config
     if _config is None:
         with _config_init_lock:
             if _config is None:
-                _config = Config.load(config_path)
-                try:
-                    _config_mtime = (
-                        _config_path.stat().st_mtime if _config_path.exists() else 0.0
-                    )
-                except Exception:
-                    _config_mtime = 0.0
-
+                _config = Config.load_with_defaults({})
     return _config
 
 
-async def get_config_async(config_path: str | None = None) -> Config:
-    global _config, _config_mtime, _config_path, _config_reload_lock
+async def get_config_async(*_args, **_kwargs) -> Config:
+    return get_config()
 
-    _override = _scan_config_var.get(None)
-    if _override is not None:
-        return _override
 
-    if _config_path is None:
-        _config_path = _get_config_path(config_path)
-
-    if _config_reload_lock is None:
-        _config_reload_lock = asyncio.Lock()
-
-    async with _config_reload_lock:
-        if _config is not None:
-            try:
-                current_mtime = (
-                    _config_path.stat().st_mtime if _config_path.exists() else 0.0
-                )
-                if current_mtime > _config_mtime:
-                    logger.info("Config file changed — reloading from %s", _config_path)
-                    _config = Config.load(_config_path)
-                    _config_mtime = current_mtime
-            except Exception as e:
-                logger.debug("Config reload check failed: %s", e)
-
-        if _config is None:
-            _config = Config.load(config_path)
-            try:
-                _config_mtime = (
-                    _config_path.stat().st_mtime if _config_path.exists() else 0.0
-                )
-            except Exception:
-                _config_mtime = 0.0
-
-    return _config
+def set_global_config(config: Config) -> None:
+    global _config
+    _config = config
+    logger.info("Global config updated from database (%d fields)", len(dataclasses.fields(config)))
 
 
 def reload_config() -> Config:
-    global _config, _config_mtime
+    global _config
     _config = None
-    _config_mtime = 0.0
     return get_config()
 
 

@@ -8,9 +8,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from airecon._version import __version__
-from .deps import close_db, get_db
+from .deps import close_db, get_db, seed_default_settings, reload_global_config
 from .routes.scans import router as scans_router
 from .routes.health import router as health_router
+from .routes.config import router as config_router
 
 logger = logging.getLogger("airecon.api")
 
@@ -23,6 +24,10 @@ async def lifespan(app: FastAPI):
 
     await get_db()
     logger.info("Database connected")
+
+    await seed_default_settings()
+    await reload_global_config()
+    logger.info("Global config loaded from database")
 
     from ..worker.runner import start_worker_loop
     _worker_task = asyncio.create_task(
@@ -62,5 +67,6 @@ def create_app() -> FastAPI:
 
     app.include_router(scans_router)
     app.include_router(health_router)
+    app.include_router(config_router)
 
     return app
