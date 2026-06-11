@@ -4,315 +4,264 @@ set -euo pipefail
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
-ORANGE='\033[38;5;214m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
 MUTED='\033[0;2m'
 NC='\033[0m'
 
 REPO_URL="https://github.com/pikpikcu/airecon"
-BRANCH="main"
+BRANCH="feat/api"
 
-# Restore cursor on unexpected exit
-_cursor_hidden=0
-_restore_cursor() { [ "$_cursor_hidden" -eq 1 ] && printf "\033[?25h" >&2; }
-trap '_restore_cursor' EXIT INT TERM
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
-# ── Spinner for long-running commands ────────────────────────────────────────
-run_spinner() {
-    local label="$1"
-    shift
+info()  { echo -e "  ${CYAN}▸${NC} $*"; }
+ok()    { echo -e "  ${GREEN}✓${NC} $*"; }
+warn()  { echo -e "  ${YELLOW}!${NC} $*"; }
+fail()  { echo -e "  ${RED}✗${NC} $*"; exit 1; }
 
-    if [ ! -t 2 ]; then
-        "$@" > /dev/null 2>&1
-        return $?
-    fi
-
-    local frames=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
-    local n=${#frames[@]}
-    local i=0
-
-    local out_file
-    out_file=$(mktemp /tmp/airecon_spin_XXXXXX)
-
-    printf "\033[?25l" >&2
-    _cursor_hidden=1
-
-    "$@" > "$out_file" 2>&1 &
-    local pid=$!
-
-    while kill -0 "$pid" 2>/dev/null; do
-        printf "\r  ${ORANGE}%s${NC}  ${MUTED}%s${NC}" "${frames[$i]}" "$label" >&2
-        i=$(( (i + 1) % n ))
-        sleep 0.08
-    done
-
-    wait "$pid"
-    local rc=$?
-
-    printf "\r\033[K" >&2
-    printf "\033[?25h" >&2
-    _cursor_hidden=0
-
-    if [ "$rc" -eq 0 ]; then
-        printf "  ${GREEN}✓${NC}  ${MUTED}%s${NC}\n" "$label" >&2
-    else
-        printf "  ${RED}✗${NC}  %s\n" "$label" >&2
-        cat "$out_file" >&2
-    fi
-
-    rm -f "$out_file"
-    return "$rc"
-}
-
-# ── Download progress bar (real bytes) ───────────────────────────────────────
-print_progress() {
-    local bytes="$1"
-    local length="$2"
-    [ "$length" -gt 0 ] || return 0
-
-    local width=46
-    local percent=$(( bytes * 100 / length ))
-    [ "$percent" -gt 100 ] && percent=100
-    local on=$(( percent * width / 100 ))
-    local off=$(( width - on ))
-
-    local filled=$(printf "%*s" "$on" "")
-    filled=${filled// /■}
-    local empty=$(printf "%*s" "$off" "")
-    empty=${empty// /·}
-
-    printf "\r  ${ORANGE}%s%s${NC} ${MUTED}%3d%%${NC}" "$filled" "$empty" "$percent" >&4
-}
-
-unbuffered_sed() {
-    if echo | sed -u -e "" >/dev/null 2>&1; then
-        sed -nu "$@"
-    elif echo | sed -l -e "" >/dev/null 2>&1; then
-        sed -nl "$@"
-    else
-        local pad="$(printf "\n%512s" "")"
-        sed -ne "s/$/\\${pad}/" "$@"
-    fi
-}
-
-download_with_progress() {
-    local url="$1"
-    local output="$2"
-    local label="${3:-Downloading...}"
-
-    if [ -t 2 ]; then
-        exec 4>&2
-    else
-        exec 4>/dev/null
-    fi
-
-    local tmp_dir=${TMPDIR:-/tmp}
-    local tracefile="${tmp_dir}/airecon_trace_$$"
-
-    rm -f "$tracefile"
-    mkfifo "$tracefile"
-
-    printf "\033[?25l" >&4
-    _cursor_hidden=1
-    printf "  ${MUTED}%s${NC}\n" "$label" >&4
-
-    trap "trap - RETURN; rm -f \"$tracefile\"; printf '\033[?25h' >&4; _cursor_hidden=0; exec 4>&-" RETURN
-
-    curl --trace-ascii "$tracefile" -s -L -o "$output" "$url" &
-    local curl_pid=$!
-
-    unbuffered_sed \
-        -e 'y/ACDEGHLNORTV/acdeghlnortv/' \
-        -e '/^0000: content-length:/p' \
-        -e '/^<= recv data/p' \
-        "$tracefile" | \
-    {
-        local length=0
-        local bytes=0
-
-        while IFS=" " read -r -a line; do
-            [ "${#line[@]}" -lt 2 ] && continue
-            local tag="${line[0]} ${line[1]}"
-
-            if [ "$tag" = "0000: content-length:" ]; then
-                length="${line[2]}"
-                length=$(echo "$length" | tr -d '\r')
-                bytes=0
-            elif [ "$tag" = "<= recv" ]; then
-                local size="${line[3]}"
-                bytes=$(( bytes + size ))
-                if [ "$length" -gt 0 ]; then
-                    print_progress "$bytes" "$length"
-                fi
-            fi
-        done
-    }
-
-    wait "$curl_pid"
-    local exit_code=$?
-
-    printf "\r\033[K" >&4
-    printf "\033[?25h" >&4
-    _cursor_hidden=0
-
-    if [ "$exit_code" -eq 0 ]; then
-        printf "  ${GREEN}✓${NC}  ${MUTED}%s${NC}\n" "$label" >&4
-    else
-        printf "  ${RED}✗${NC}  Download failed\n" >&4
-    fi
-
-    rm -f "$tracefile"
-    exec 4>&-
-    return "$exit_code"
-}
-
-# ── Detect local vs remote (curl|bash) mode ──────────────────────────────────
+# ── Detect install mode ──────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-/tmp}")" && pwd 2>/dev/null || echo /tmp)"
-PYPROJECT="$SCRIPT_DIR/pyproject.toml"
 
-if [ ! -f "$PYPROJECT" ]; then
-    if ! command -v git &> /dev/null; then
-        echo -e "${RED}[!] git is required but not installed.${NC}"
-        exit 1
+if [ ! -f "$SCRIPT_DIR/docker-compose.yml" ]; then
+    if ! command -v git &>/dev/null; then
+        fail "git is required but not installed"
     fi
-
     TMP_DIR=$(mktemp -d)
-    trap 'rm -rf "$TMP_DIR"; _restore_cursor' EXIT
-
-    run_spinner "Cloning repository" \
-        git clone --quiet --depth=1 --branch "$BRANCH" "$REPO_URL" "$TMP_DIR" \
-        || { echo -e "${RED}[!] Failed to clone repository.${NC}"; exit 1; }
-
+    trap 'rm -rf "$TMP_DIR"' EXIT
+    info "Cloning repository..."
+    git clone --quiet --depth=1 --branch "$BRANCH" "$REPO_URL" "$TMP_DIR" \
+        || fail "Failed to clone repository"
     SCRIPT_DIR="$TMP_DIR"
-    PYPROJECT="$SCRIPT_DIR/pyproject.toml"
 fi
 
 cd "$SCRIPT_DIR"
 
-# ── Detect version ────────────────────────────────────────────────────────────
-NEW_VERSION=$(grep -m1 '^version' "$PYPROJECT" | sed 's/version = "\(.*\)"/\1/')
-
-normalize_ver() {
-    echo "$1" | sed 's/-beta$/b0/; s/-alpha$/a0/; s/-rc\([0-9]*\)$/rc\1/'
-}
-
-PYTHON_CMD="python3"
-[ -f "/usr/bin/python3" ] && PYTHON_CMD="/usr/bin/python3"
-
-# ── Show installed / incoming version ────────────────────────────────────────
-CURRENT_VERSION=""
-if command -v airecon &> /dev/null; then
-    CURRENT_VERSION=$(airecon --version 2>/dev/null | awk '{print $NF}' || true)
-fi
-
+# ── Banner ───────────────────────────────────────────────────────────────────
 echo ""
-if [ -n "$CURRENT_VERSION" ]; then
-    echo -e "  ${MUTED}Installed:${NC} ${BOLD}v${CURRENT_VERSION}${NC}"
-fi
-echo -e "  ${MUTED}Installing:${NC} ${BOLD}v${NEW_VERSION}${NC}"
+echo -e "     ${BOLD}█████████   █████ ███████████${NC}"
+echo -e "    ${BOLD}███▒▒▒▒▒███ ▒▒███ ▒▒███▒▒▒▒▒███${NC}"
+echo -e "   ${BOLD}▒███    ▒███  ▒███  ▒███    ▒███   ██████   ██████   ██████  ████████${NC}"
+echo -e "   ${BOLD}▒███████████  ▒███  ▒██████████   ███▒▒███ ███▒▒███ ███▒▒███▒▒███▒▒███${NC}"
+echo -e "   ${BOLD}▒███▒▒▒▒▒███  ▒███  ▒███▒▒▒▒▒███ ▒███████ ▒███ ▒▒▒ ▒███ ▒███ ▒███ ▒███${NC}"
+echo -e "   ${BOLD}▒███    ▒███  ▒███  ▒███    ▒███ ▒███▒▒▒  ▒███  ███▒███ ▒███ ▒███ ▒███${NC}"
+echo -e "   ${BOLD}█████   █████ █████ █████   █████▒▒██████ ▒▒██████ ▒▒██████  ████ █████${NC}"
+echo -e "   ${BOLD}▒▒▒▒▒   ▒▒▒▒▒ ▒▒▒▒▒ ▒▒▒▒▒   ▒▒▒▒▒  ▒▒▒▒▒▒   ▒▒▒▒▒▒   ▒▒▒▒▒▒  ▒▒▒▒ ▒▒▒▒▒${NC}"
+echo ""
+echo -e "  ${MUTED}AI-Powered Security Reconnaissance — API Installer${NC}"
 echo ""
 
-# ── Check Python >= 3.12 ──────────────────────────────────────────────────────
-PY_OK=$($PYTHON_CMD -c "import sys; print('yes' if sys.version_info >= (3,12) else 'no')" 2>/dev/null || echo "no")
-if [ "$PY_OK" != "yes" ]; then
-    PY_VERSION=$($PYTHON_CMD -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0.0")
-    echo -e "${RED}[!] Python >= 3.12 required, found $PY_VERSION${NC}"
-    exit 1
+# ── Choose install mode ──────────────────────────────────────────────────────
+MODE=""
+if [ "${1:-}" = "--docker" ]; then
+    MODE="docker"
+elif [ "${1:-}" = "--local" ]; then
+    MODE="local"
 fi
 
-# ── Version comparison ────────────────────────────────────────────────────────
-if [ -n "$CURRENT_VERSION" ]; then
-    if [ "$(normalize_ver "$CURRENT_VERSION")" = "$(normalize_ver "$NEW_VERSION")" ]; then
-        echo -e "  ${MUTED}Already installed — reinstalling${NC}"
-    else
-        echo -e "  ${MUTED}Upgrading${NC} v${CURRENT_VERSION} ${MUTED}→${NC} v${NEW_VERSION}"
-    fi
+if [ -z "$MODE" ]; then
+    echo -e "  ${BOLD}Install mode:${NC}"
+    echo ""
+    echo -e "    ${CYAN}1)${NC} Docker Compose ${MUTED}(recommended — PostgreSQL + API in containers)${NC}"
+    echo -e "    ${CYAN}2)${NC} Local ${MUTED}(venv + local PostgreSQL)${NC}"
+    echo ""
+    read -rp "  Choose [1/2]: " choice
+    case "$choice" in
+        1) MODE="docker" ;;
+        2) MODE="local" ;;
+        *) fail "Invalid choice" ;;
+    esac
     echo ""
 fi
 
-# ── Check / install Poetry ────────────────────────────────────────────────────
-if ! command -v poetry &> /dev/null; then
-    if ! command -v curl &> /dev/null; then
-        echo -e "${RED}[!] curl is required to install Poetry.${NC}"
-        exit 1
+# ═══════════════════════════════════════════════════════════════════════════════
+# DOCKER MODE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+install_docker() {
+    # Check Docker
+    command -v docker &>/dev/null || fail "Docker is required. Install: https://docs.docker.com/get-docker/"
+    command -v docker compose &>/dev/null 2>&1 || command -v docker-compose &>/dev/null || fail "Docker Compose is required"
+
+    ok "Docker found"
+
+    # Check Docker daemon
+    if ! docker info &>/dev/null; then
+        fail "Docker daemon is not running. Start Docker and retry."
     fi
-    run_spinner "Installing Poetry" \
-        bash -c 'curl -sSL https://install.python-poetry.org | python3 - > /dev/null 2>&1'
-    export PATH="$HOME/.local/bin:$PATH"
-fi
+    ok "Docker daemon running"
 
-# ── Uninstall previous ────────────────────────────────────────────────────────
-# Collect installed script names BEFORE uninstalling so we can force-remove
-# leftover files that might have wrong permissions (e.g. from a prior sudo pip).
-_STALE_SCRIPTS=$(pip show -f airecon 2>/dev/null \
-    | grep -E '^\s+\.\.' | grep '/bin/' \
-    | sed 's|.*/bin/||; s/\r//' || true)
+    # Create .env
+    if [ ! -f .env ]; then
+        cp .env.example .env
+        ok "Created .env from .env.example"
 
-run_spinner "Removing previous installation" bash -c "
-    pip uninstall -y airecon > /dev/null 2>&1 || true
-    rm -rf dist/ build/ *.egg-info 2>/dev/null || true
-    # Force-remove any leftover scripts that may block reinstall (permission issues)
-    echo '${_STALE_SCRIPTS}' | while IFS= read -r _s; do
-        [ -n \"\$_s\" ] && rm -f \"\$HOME/.local/bin/\$_s\" 2>/dev/null || true
+        echo ""
+        info "Configure LLM provider in .env:"
+        echo -e "    ${MUTED}AIRECON_LLM_BASE_URL${NC} — API endpoint (default: Ollama local)"
+        echo -e "    ${MUTED}AIRECON_LLM_MODEL${NC}    — Model name"
+        echo -e "    ${MUTED}AIRECON_LLM_API_KEY${NC}  — API key (empty for local)"
+        echo ""
+        read -rp "  Edit .env now? [y/N]: " edit_env
+        if [[ "$edit_env" =~ ^[Yy] ]]; then
+            ${EDITOR:-nano} .env
+        fi
+    else
+        ok ".env already exists (skipping)"
+    fi
+
+    echo ""
+    info "Building and starting services..."
+    echo ""
+
+    docker compose up --build -d migrate \
+        || fail "Database migration failed"
+    ok "Database migrated"
+
+    docker compose up --build -d db api \
+        || fail "Failed to start services"
+    ok "Services started"
+
+    # Wait for API
+    echo ""
+    info "Waiting for API to become healthy..."
+    API_PORT=$(grep -oP 'API_PORT=\K[0-9]+' .env 2>/dev/null || echo 8000)
+
+    for i in $(seq 1 30); do
+        if curl -sf "http://localhost:${API_PORT}/api/health" &>/dev/null; then
+            ok "API is healthy (http://localhost:${API_PORT})"
+            break
+        fi
+        if [ "$i" -eq 30 ]; then
+            warn "API not yet healthy after 30s — check: docker compose logs api"
+        fi
+        sleep 1
     done
-"
 
-# ── Build wheel ───────────────────────────────────────────────────────────────
-run_spinner "Building package" \
-    bash -c 'POETRY_VIRTUALENVS_CREATE=false poetry build > /dev/null 2>&1' \
-    || { echo -e "${RED}[!] Build failed.${NC}"; exit 1; }
+    echo ""
+    echo -e "  ${BOLD}${GREEN}AIRecon is running!${NC}"
+    echo ""
+    echo -e "  ${MUTED}API:${NC}          http://localhost:${API_PORT}"
+    echo -e "  ${MUTED}Swagger:${NC}      http://localhost:${API_PORT}/docs"
+    echo -e "  ${MUTED}ReDoc:${NC}        http://localhost:${API_PORT}/redoc"
+    echo -e "  ${MUTED}Health:${NC}       http://localhost:${API_PORT}/api/health"
+    echo ""
+    echo -e "  ${MUTED}Manage:${NC}"
+    echo -e "    ${CYAN}docker compose logs -f api${NC}     — view logs"
+    echo -e "    ${CYAN}docker compose stop${NC}             — stop services"
+    echo -e "    ${CYAN}docker compose down -v${NC}          — stop + remove data"
+    echo ""
+}
 
-# ── Install wheel ─────────────────────────────────────────────────────────────
-WHEEL_FILE=$(find dist -name "airecon-*.whl" | head -n 1)
-if [ -z "$WHEEL_FILE" ]; then
-    echo -e "${RED}[!] No wheel file found in dist/.${NC}"
-    exit 1
-fi
+# ═══════════════════════════════════════════════════════════════════════════════
+# LOCAL MODE
+# ═══════════════════════════════════════════════════════════════════════════════
 
-run_spinner "Installing airecon" \
-    "$PYTHON_CMD" -m pip install "$WHEEL_FILE" \
-        --user --no-cache-dir --force-reinstall \
-        --break-system-packages --quiet \
-    || { echo -e "${RED}[!] pip install failed.${NC}"; exit 1; }
+install_local() {
+    # Check Python
+    PYTHON_CMD=""
+    for cmd in python3.12 python3 python; do
+        if command -v "$cmd" &>/dev/null; then
+            PY_OK=$("$cmd" -c "import sys; print('yes' if sys.version_info >= (3,12) else 'no')" 2>/dev/null || echo "no")
+            if [ "$PY_OK" = "yes" ]; then
+                PYTHON_CMD="$cmd"
+                break
+            fi
+        fi
+    done
 
-# ── Install Playwright browser engine ─────────────────────────────────────────
-run_spinner "Installing browser engine (Chromium)" \
-    "$PYTHON_CMD" -m playwright install chromium \
-    || true   # non-fatal — browser features optional
+    if [ -z "$PYTHON_CMD" ]; then
+        fail "Python >= 3.12 required. Install: https://www.python.org/downloads/"
+    fi
 
-echo ""
+    PY_VER=$($PYTHON_CMD -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+    ok "Python ${PY_VER} found (${PYTHON_CMD})"
 
-# ── Print banner ──────────────────────────────────────────────────────────────
-INSTALLED_VERSION=$($PYTHON_CMD -c "
-try:
-    from airecon._version import __version__
-    print(__version__)
-except Exception:
-    print('${NEW_VERSION}')
-" 2>/dev/null || echo "$NEW_VERSION")
+    # Check PostgreSQL (warn if not found)
+    if command -v psql &>/dev/null; then
+        ok "PostgreSQL client found"
+    else
+        warn "psql not found — you'll need PostgreSQL running"
+        echo -e "    ${MUTED}Install: https://www.postgresql.org/download/${NC}"
+        echo -e "    ${MUTED}Or use Docker: docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=airecon -e POSTGRES_DB=airecon postgres:16-alpine${NC}"
+    fi
 
-echo -e "     █████████   █████ ███████████"
-echo -e "    ███▒▒▒▒▒███ ▒▒███ ▒▒███▒▒▒▒▒███"
-echo -e "   ▒███    ▒███  ▒███  ▒███    ▒███   ██████   ██████   ██████  ████████"
-echo -e "   ▒███████████  ▒███  ▒██████████   ███▒▒███ ███▒▒███ ███▒▒███▒▒███▒▒███"
-echo -e "   ▒███▒▒▒▒▒███  ▒███  ▒███▒▒▒▒▒███ ▒███████ ▒███ ▒▒▒ ▒███ ▒███ ▒███ ▒███"
-echo -e "   ▒███    ▒███  ▒███  ▒███    ▒███ ▒███▒▒▒  ▒███  ███▒███ ▒███ ▒███ ▒███"
-echo -e "   █████   █████ █████ █████   █████▒▒██████ ▒▒██████ ▒▒██████  ████ █████"
-echo -e "   ▒▒▒▒▒   ▒▒▒▒▒ ▒▒▒▒▒ ▒▒▒▒▒   ▒▒▒▒▒  ▒▒▒▒▒▒   ▒▒▒▒▒▒   ▒▒▒▒▒▒  ▒▒▒▒ ▒▒▒▒▒"
-echo -e ""
-echo -e "${MUTED}            v${INSTALLED_VERSION} — AI-Powered Security Reconnaissance${NC}"
-echo -e ""
-echo -e "  ${MUTED}Quick start:${NC}    ${CYAN}airecon start${NC}"
-echo -e "  ${MUTED}All options:${NC}    ${CYAN}airecon -h${NC}"
-echo -e "  ${MUTED}Documentation:${NC}  ${CYAN}https://pikpikcu.github.io/airecon/${NC}"
-echo -e ""
+    # Create .env
+    if [ ! -f .env ]; then
+        cp .env.example .env
+        ok "Created .env from .env.example"
+    else
+        ok ".env already exists"
+    fi
 
-# ── Verify PATH ───────────────────────────────────────────────────────────────
-if command -v airecon &> /dev/null; then
-    echo -e "  ${GREEN}✓${NC}  ${MUTED}airecon is in your PATH${NC}"
-else
-    echo -e "  ${YELLOW}!${NC}  ${MUTED}Add to your shell profile:${NC}"
-    echo -e "     ${BOLD}export PATH=\"\$HOME/.local/bin:\$PATH\"${NC}"
-fi
-echo ""
+    # Create venv
+    if [ ! -d .venv ]; then
+        info "Creating virtual environment..."
+        $PYTHON_CMD -m venv .venv
+        ok "Virtual environment created"
+    else
+        ok "Virtual environment exists"
+    fi
+
+    # Activate
+    source .venv/bin/activate
+
+    # Install dependencies
+    echo ""
+    info "Installing dependencies..."
+    pip install --upgrade pip setuptools wheel -q
+    pip install -r requirements.txt -q
+    ok "Dependencies installed"
+
+    # Install Playwright
+    info "Installing browser engine (Chromium)..."
+    python -m playwright install chromium 2>/dev/null || warn "Playwright install failed (non-fatal)"
+    ok "Browser engine ready"
+
+    # Generate Prisma client
+    info "Generating Prisma client..."
+    set -a
+    source .env
+    set +a
+    python -m prisma generate
+    ok "Prisma client generated"
+
+    # Prompt for DATABASE_URL
+    if [ -z "${DATABASE_URL:-}" ]; then
+        echo ""
+        echo -e "  ${BOLD}Database configuration:${NC}"
+        echo ""
+        echo -e "    ${MUTED}Local PostgreSQL:${NC}  postgresql://airecon:airecon@localhost:5432/airecon"
+        echo -e "    ${MUTED}Docker PostgreSQL:${NC} postgresql://postgres:airecon@localhost:5432/airecon"
+        echo ""
+        read -rp "  DATABASE_URL [postgresql://airecon:airecon@localhost:5432/airecon]: " db_url
+        db_url="${db_url:-postgresql://airecon:airecon@localhost:5432/airecon}"
+        export DATABASE_URL="$db_url"
+        echo "DATABASE_URL=$db_url" >> .env
+    fi
+
+    # Run migrations
+    info "Running database migrations..."
+    python -m prisma db push --skip-generate 2>/dev/null \
+        || warn "Migration failed — ensure PostgreSQL is running and DATABASE_URL is correct"
+    ok "Migrations applied"
+
+    echo ""
+    echo -e "  ${BOLD}${GREEN}Installation complete!${NC}"
+    echo ""
+    echo -e "  ${MUTED}Start the API:${NC}"
+    echo -e "    ${CYAN}source .venv/bin/activate${NC}"
+    echo -e "    ${CYAN}python -m airecon${NC}"
+    echo ""
+    echo -e "  ${MUTED}Or with custom port:${NC}"
+    echo -e "    ${CYAN}AIRECON_PORT=9000 python -m airecon${NC}"
+    echo ""
+    echo -e "  ${MUTED}API docs:${NC}      http://localhost:8000/docs"
+    echo -e "  ${MUTED}Health check:${NC}  http://localhost:8000/api/health"
+    echo ""
+}
+
+# ── Run ──────────────────────────────────────────────────────────────────────
+case "$MODE" in
+    docker) install_docker ;;
+    local)  install_local ;;
+esac
