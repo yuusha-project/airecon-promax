@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import dataclasses
 import logging
 import os
@@ -1644,6 +1645,10 @@ def _get_config_path(config_path: str | Path | None = None) -> Path:
 def get_config(config_path: str | None = None) -> Config:
     global _config, _config_mtime, _config_path
 
+    _override = _scan_config_var.get(None)
+    if _override is not None:
+        return _override
+
     if _config_path is None:
         _config_path = _get_config_path(config_path)
 
@@ -1687,6 +1692,10 @@ def get_config(config_path: str | None = None) -> Config:
 async def get_config_async(config_path: str | None = None) -> Config:
     global _config, _config_mtime, _config_path, _config_reload_lock
 
+    _override = _scan_config_var.get(None)
+    if _override is not None:
+        return _override
+
     if _config_path is None:
         _config_path = _get_config_path(config_path)
 
@@ -1723,3 +1732,133 @@ def reload_config() -> Config:
     _config = None
     _config_mtime = 0.0
     return get_config()
+
+
+# ── Per-scan config override (ContextVar) ──────────────────────────────────
+# Allows worker to set scan-specific config per async task without
+# changing any of the 47 get_config() call sites in agent code.
+
+_scan_config_var: contextvars.ContextVar[Config | None] = contextvars.ContextVar(
+    "scan_config", default=None
+)
+
+SCAN_CONFIG_KEYS: frozenset[str] = frozenset({
+    # LLM provider
+    "llm_base_url", "llm_model", "llm_api_key", "llm_extra_body",
+    "llm_timeout", "llm_chunk_timeout",
+    "llm_context_length", "llm_context_length_small",
+    "llm_temperature", "llm_max_tokens",
+    "llm_enable_thinking", "llm_thinking_mode",
+    "llm_supports_thinking", "llm_supports_native_tools",
+    "llm_max_concurrent_requests", "llm_num_keep", "llm_repeat_penalty",
+    "llm_keep_alive",
+    # Agent behavior
+    "deep_recon_autostart", "agent_recon_mode",
+    "agent_max_tool_iterations", "agent_repeat_tool_call_limit",
+    "agent_missing_tool_retry_limit", "agent_plan_revision_interval",
+    "agent_exploration_mode", "agent_exploration_intensity",
+    "agent_exploration_temperature", "agent_stagnation_threshold",
+    "agent_tool_diversity_window", "agent_max_same_tool_streak",
+    "agent_phase_creative_temperature", "allow_destructive_testing",
+    # Context management
+    "agent_max_conversation_messages", "agent_compression_trigger_ratio",
+    "agent_uncompressed_keep_count", "agent_llm_compression_num_ctx",
+    "agent_llm_compression_num_predict", "agent_context_reset_cooldown_seconds",
+    "agent_ctf_max_iterations", "agent_max_empty_retries",
+    "agent_idle_hard_timeout", "agent_max_browser_visits_per_domain",
+    "agent_command_hash_cache_limit", "agent_command_hash_cache_prune_target",
+    # Pipeline
+    "pipeline_recon_min_subdomains", "pipeline_recon_min_urls",
+    "pipeline_recon_soft_timeout", "pipeline_recon_artifacts_scan_threshold",
+    "pipeline_recon_strong_signals_threshold",
+    "pipeline_analysis_min_injection_points", "pipeline_exploit_min_signals",
+    "pipeline_counterfactual_interval_simple",
+    "pipeline_counterfactual_interval_complex",
+    "pipeline_counterfactual_vuln_threshold",
+    "pipeline_stagnation_vuln_baseline_iterations",
+    "pipeline_min_iterations_per_phase", "pipeline_advanced_hints_failure_threshold",
+    "pipeline_max_iterations_cap",
+    "pipeline_output_parser_max_items_recon",
+    "pipeline_output_parser_max_items_analysis",
+    "pipeline_output_parser_max_items_exploit",
+    "pipeline_output_parser_max_items_report",
+    "pipeline_recon_max_iterations", "pipeline_analysis_max_iterations",
+    "pipeline_exploit_max_iterations", "pipeline_report_max_iterations",
+    "pipeline_recon_budget", "pipeline_analysis_budget",
+    "pipeline_exploit_budget", "pipeline_report_budget",
+    "pipeline_tool_budget_recon_quick_fuzz",
+    "pipeline_tool_budget_recon_advanced_fuzz",
+    "pipeline_tool_budget_recon_deep_fuzz",
+    "pipeline_tool_budget_recon_caido_automate",
+    "pipeline_tool_budget_recon_create_vulnerability_report",
+    "pipeline_tool_budget_analysis_advanced_fuzz",
+    "pipeline_tool_budget_analysis_deep_fuzz",
+    "pipeline_tool_budget_analysis_create_vulnerability_report",
+    "pipeline_tool_budget_exploit_advanced_fuzz",
+    "pipeline_tool_budget_exploit_deep_fuzz",
+    "pipeline_tool_budget_exploit_quick_fuzz",
+    "pipeline_tool_budget_exploit_caido_automate",
+    "pipeline_tool_budget_report_execute",
+    "pipeline_tool_budget_report_advanced_fuzz",
+    "pipeline_tool_budget_report_deep_fuzz",
+    "pipeline_tool_budget_report_quick_fuzz",
+    "pipeline_confidence_threshold_recon",
+    "pipeline_confidence_threshold_analysis",
+    "pipeline_confidence_threshold_exploit",
+    "pipeline_confidence_threshold_report",
+    # Dedup
+    "vuln_similarity_threshold", "evidence_similarity_threshold",
+    # Model constants
+    "model_max_tool_iterations", "model_max_tool_history",
+    "model_max_objectives", "model_max_evidence",
+    "model_max_causal_observations", "model_max_tool_result_chars",
+    "model_min_confidence_for_preservation",
+    # Causal confidence
+    "causal_confidence_technology_detected",
+    "causal_confidence_endpoint_observed",
+    "causal_confidence_endpoint_accessible",
+    "causal_confidence_service_exposed",
+    "causal_confidence_port_state_observed",
+    "causal_confidence_endpoint_discovered",
+    "causal_confidence_asset_discovered",
+    "causal_confidence_vulnerability_signal",
+    "causal_confidence_tool_output_observed",
+    # Exploration
+    "exploration_meaningful_evidence_threshold",
+    # Verification
+    "verification_enabled", "verification_enable_replay",
+    "verification_enable_cross_tool", "verification_enable_negative_test",
+    "verification_enable_fp_detection", "verification_max_replays",
+    "verification_timeout", "verification_min_certified_confidence",
+    "verification_min_report_confidence",
+    # Intelligence
+    "intelligence_enabled", "intelligence_adaptive_learning_enabled",
+    "intelligence_adaptive_min_observations",
+    "intelligence_generative_fuzzing_enabled",
+    "intelligence_generative_population_size",
+    "intelligence_generative_max_generations",
+    "intelligence_target_profiling_enabled",
+    "intelligence_attack_chain_synthesis_enabled",
+    # Payload memory
+    "payload_memory_enabled", "session_persistence_enabled",
+    "payload_memory_max_records", "payload_memory_ttl_days",
+    # Tool config
+    "tool_response_role", "command_timeout",
+    "per_tool_timeout_seconds", "response_timing_alert_threshold_ms",
+})
+
+
+def get_scan_config() -> Config | None:
+    return _scan_config_var.get()
+
+
+def set_scan_config(config: Config | None) -> contextvars.Token:
+    return _scan_config_var.set(config)
+
+
+def create_scan_config(overrides: dict[str, Any]) -> Config:
+    base = get_config()
+    base_dict = {f.name: getattr(base, f.name) for f in dataclasses.fields(base)}
+    filtered = {k: v for k, v in overrides.items() if k in SCAN_CONFIG_KEYS and v is not None}
+    base_dict.update(filtered)
+    return Config.load_with_defaults(base_dict)

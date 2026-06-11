@@ -44,16 +44,27 @@ async def _run_scan_worker(scan_id: str) -> None:
         cancel_event = asyncio.Event()
         _cancel_events[scan_id] = cancel_event
 
-        logger.info("Worker starting scan %s: target=%s", scan_id, scan.target)
-
+        from airecon.proxy.config import create_scan_config, set_scan_config, get_config
         from airecon.proxy.llm_client import LLMClient
         from airecon.proxy.docker import DockerEngine
         from airecon.proxy.agent.loop import AgentLoop
 
-        llm = LLMClient()
-        await llm._async_init()
-        engine = DockerEngine()
-        agent = AgentLoop(ollama=llm, engine=engine)
+        scan_cfg_overrides = scan.config if isinstance(scan.config, dict) else {}
+        scan_cfg = create_scan_config(scan_cfg_overrides)
+        token = set_scan_config(scan_cfg)
+        logger.info(
+            "Scan %s config: model=%s, base_url=%s, max_iters=%d",
+            scan_id, scan_cfg.llm_model, scan_cfg.llm_base_url,
+            scan_cfg.agent_max_tool_iterations,
+        )
+
+        try:
+            llm = LLMClient()
+            await llm._async_init()
+            engine = DockerEngine()
+            agent = AgentLoop(ollama=llm, engine=engine)
+
+            logger.info("Worker starting scan %s: target=%s", scan_id, scan.target)
 
         try:
             await agent.initialize()
@@ -139,6 +150,7 @@ async def _run_scan_worker(scan_id: str) -> None:
             )
         finally:
             await agent.stop()
+            set_scan_config(None)
 
     finally:
         await db.disconnect()

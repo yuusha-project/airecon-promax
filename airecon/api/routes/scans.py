@@ -29,6 +29,7 @@ def _scan_to_response(scan: Any, finding_count: int = 0, subdomain_count: int = 
         target=scan.target,
         status=scan.status,
         phase=scan.phase,
+        config=scan.config if isinstance(scan.config, dict) else None,
         created_at=scan.createdAt,
         updated_at=scan.updatedAt,
         started_at=scan.startedAt,
@@ -41,10 +42,14 @@ def _scan_to_response(scan: Any, finding_count: int = 0, subdomain_count: int = 
 
 @router.post("", response_model=ScanResponse, status_code=201)
 async def create_scan(body: ScanCreate, db: Prisma = Depends(get_db)):
+    config_data = None
+    if body.config:
+        config_data = body.config.model_dump(exclude_none=True)
+
     scan = await db.scan.create(
         data={
             "target": body.target,
-            "config": body.config,
+            "config": config_data,
         }
     )
     logger.info("Scan created: %s for target=%s", scan.id, body.target)
