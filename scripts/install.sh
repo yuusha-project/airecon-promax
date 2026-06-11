@@ -26,12 +26,25 @@ if [ ! -f "$SCRIPT_DIR/docker-compose.yml" ]; then
     if ! command -v git &>/dev/null; then
         fail "git is required but not installed"
     fi
-    TMP_DIR=$(mktemp -d)
-    trap 'rm -rf "$TMP_DIR"' EXIT
-    info "Cloning repository..."
-    git clone --quiet --depth=1 --branch "$BRANCH" "$REPO_URL" "$TMP_DIR" \
-        || fail "Failed to clone repository"
-    SCRIPT_DIR="$TMP_DIR"
+    INSTALL_DIR="${AIRECON_INSTALL_DIR:-$HOME/pentest}"
+    if [ -d "$INSTALL_DIR/.git" ]; then
+        info "Updating existing installation at $INSTALL_DIR..."
+        cd "$INSTALL_DIR"
+        git fetch origin
+        git checkout "$BRANCH" 2>/dev/null || git checkout -b "$BRANCH" "origin/$BRANCH"
+        git pull origin "$BRANCH"
+        ok "Repository updated"
+    else
+        if [ -d "$INSTALL_DIR" ]; then
+            info "Removing stale directory at $INSTALL_DIR..."
+            rm -rf "$INSTALL_DIR"
+        fi
+        info "Cloning repository to $INSTALL_DIR..."
+        git clone --quiet --branch "$BRANCH" "$REPO_URL" "$INSTALL_DIR" \
+            || fail "Failed to clone repository"
+        ok "Repository cloned"
+    fi
+    SCRIPT_DIR="$INSTALL_DIR"
 fi
 
 cd "$SCRIPT_DIR"
