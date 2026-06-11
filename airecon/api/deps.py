@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any
 
 from prisma import Prisma
@@ -16,7 +17,7 @@ async def get_db() -> Prisma:
     if _client is None:
         _client = Prisma()
         await _client.connect()
-        logger.info("Database connected")
+        logger.info("Database connected: %s", _mask_url(os.getenv("DATABASE_URL", "")))
     return _client
 
 
@@ -26,6 +27,15 @@ async def close_db() -> None:
         await _client.disconnect()
         _client = None
         logger.info("Database disconnected")
+
+
+async def check_db_health() -> bool:
+    try:
+        db = await get_db()
+        await db.query_raw("SELECT 1")
+        return True
+    except Exception:
+        return False
 
 
 async def seed_default_settings() -> int:
@@ -76,3 +86,10 @@ async def reload_global_config() -> None:
 def _get_config_categories() -> list[tuple[str, list[str]]]:
     from airecon.proxy.config import _CONFIG_CATEGORIES
     return _CONFIG_CATEGORIES
+
+
+def _mask_url(url: str) -> str:
+    if not url or "@" not in url:
+        return url or "(not set)"
+    _, suffix = url.rsplit("@", 1)
+    return f"***:***@{suffix}"

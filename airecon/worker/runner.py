@@ -5,8 +5,6 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from prisma import Prisma
-
 logger = logging.getLogger("airecon.worker")
 
 _scan_queue: asyncio.Queue[str] = asyncio.Queue()
@@ -30,10 +28,9 @@ async def cancel_scan(scan_id: str) -> None:
 
 
 async def _run_scan_worker(scan_id: str) -> None:
-    from prisma import Prisma as PrismaClient
+    from airecon.api.deps import get_db
 
-    db = PrismaClient()
-    await db.connect()
+    db = await get_db()
 
     try:
         scan = await db.scan.find_unique(where={"id": scan_id})
@@ -44,27 +41,26 @@ async def _run_scan_worker(scan_id: str) -> None:
         cancel_event = asyncio.Event()
         _cancel_events[scan_id] = cancel_event
 
-        from airecon.proxy.config import create_scan_config, set_scan_config, get_config
+        from airecon.proxy.config import create_scan_config, set_scan_config
         from airecon.proxy.llm_client import LLMClient
         from airecon.proxy.docker import DockerEngine
         from airecon.proxy.agent.loop import AgentLoop
 
         scan_cfg_overrides = scan.config if isinstance(scan.config, dict) else {}
         scan_cfg = create_scan_config(scan_cfg_overrides)
-        token = set_scan_config(scan_cfg)
+        set_scan_config(scan_cfg)
         logger.info(
             "Scan %s config: model=%s, base_url=%s, max_iters=%d",
             scan_id, scan_cfg.llm_model, scan_cfg.llm_base_url,
             scan_cfg.agent_max_tool_iterations,
         )
 
-        try:
-            llm = LLMClient()
-            await llm._async_init()
-            engine = DockerEngine()
-            agent = AgentLoop(ollama=llm, engine=engine)
+        llm = LLMClient()
+        await llm._async_init()
+        engine = DockerEngine()
+        agent = AgentLoop(ollama=llm, engine=engine)
 
-            logger.info("Worker starting scan %s: target=%s", scan_id, scan.target)
+        logger.info("Worker starting scan %s: target=%s", scan_id, scan.target)
 
         try:
             await agent.initialize()
@@ -152,8 +148,9 @@ async def _run_scan_worker(scan_id: str) -> None:
             await agent.stop()
             set_scan_config(None)
 
+    except Exception as e:
+        logger.exception("Worker error for scan %s: %s", scan_id, e)
     finally:
-        await db.disconnect()
         _active_tasks.pop(scan_id, None)
         _cancel_events.pop(scan_id, None)
 
