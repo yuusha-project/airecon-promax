@@ -31,6 +31,13 @@ class BatchSettingUpdate(BaseModel):
     settings: dict[str, Any] = Field(..., description="Key-value pairs to update")
 
 
+def _parse_value(raw: str) -> Any:
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return raw
+
+
 @router.get("", response_model=list[SettingResponse])
 async def list_settings(db: Prisma = Depends(get_db)):
     from airecon.proxy.config import DEFAULT_CONFIG, _CONFIG_SCHEMA
@@ -43,7 +50,7 @@ async def list_settings(db: Prisma = Depends(get_db)):
         s = db_map.get(key)
         result.append(SettingResponse(
             key=key,
-            value=s.value if s else default,
+            value=_parse_value(s.value) if s else default,
             default=default,
             category=s.category if s else "",
             description=description,
@@ -63,7 +70,7 @@ async def get_setting(key: str, db: Prisma = Depends(get_db)):
 
     return SettingResponse(
         key=key,
-        value=s.value if s else default,
+        value=_parse_value(s.value) if s else default,
         default=default,
         category=s.category if s else "",
         description=description,
@@ -85,7 +92,7 @@ async def update_setting(key: str, body: SettingUpdate, db: Prisma = Depends(get
             category = cat_name
             break
 
-    serialized = json.loads(json.dumps(body.value, default=str))
+    serialized = json.dumps(body.value)
     await db.setting.upsert(
         where={"key": key},
         data={
@@ -99,7 +106,7 @@ async def update_setting(key: str, body: SettingUpdate, db: Prisma = Depends(get
 
     return SettingResponse(
         key=key,
-        value=serialized,
+        value=body.value,
         default=default,
         category=category,
         description=description,
@@ -119,7 +126,7 @@ async def batch_update_settings(body: BatchSettingUpdate, db: Prisma = Depends(g
             if key in cat_keys:
                 category = cat_name
                 break
-        serialized = json.loads(json.dumps(value, default=str))
+        serialized = json.dumps(value)
         await db.setting.upsert(
             where={"key": key},
             data={

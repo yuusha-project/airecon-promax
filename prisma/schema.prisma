@@ -11,7 +11,7 @@ generator db {
 
 model Setting {
   key       String   @id
-  value     Json
+  value     String   @default("")
   category  String   @default("")
   updatedAt DateTime @updatedAt
 }

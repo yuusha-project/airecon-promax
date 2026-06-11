@@ -55,7 +55,7 @@ async def seed_default_settings() -> int:
             await db.setting.create(
                 data={
                     "key": key,
-                    "value": json.loads(json.dumps(default_value, default=str)),
+                    "value": json.dumps(default_value),
                     "category": category,
                 }
             )
@@ -70,7 +70,10 @@ async def load_config_from_db() -> dict[str, Any]:
     settings = await db.setting.find_many()
     result: dict[str, Any] = {}
     for s in settings:
-        result[s.key] = s.value
+        try:
+            result[s.key] = json.loads(s.value)
+        except (json.JSONDecodeError, TypeError):
+            result[s.key] = s.value
     return result
 
 
