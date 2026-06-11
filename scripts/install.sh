@@ -9,7 +9,7 @@ BOLD='\033[1m'
 MUTED='\033[0;2m'
 NC='\033[0m'
 
-REPO_URL="https://github.com/pikpikcu/airecon"
+REPO_URL="https://github.com/yuusha-project/airecon-promax"
 BRANCH="feat/api"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
