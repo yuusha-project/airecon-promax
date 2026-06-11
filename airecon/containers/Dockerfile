@@ -20,7 +20,11 @@ RUN mkdir -p /workspace/output /workspace/tools /workspace/vulnerabilities && \
     chown -R pentester:pentester /workspace
 
 # ── Install all tools in one layer to minimize image size ──
+# Pre-create /etc/machine-id so systemd postinst doesn't fail in Docker
+# (systemd is pulled as a transitive dependency; without machine-id its
+#  postinst tries systemctl preset-all and crashes with exit code 100)
 RUN apt-get update && \
+    mkdir -p /etc && echo "container" > /etc/machine-id && \
     apt-get install -y --no-install-recommends \
     # Build essentials
     sudo wget curl git vim nano unzip tar \
