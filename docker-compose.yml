@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-airecon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airecon}
+      POSTGRES_DB: ${POSTGRES_DB:-airecon}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-airecon}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-airecon}:${POSTGRES_PASSWORD:-airecon}@db:5432/${POSTGRES_DB:-airecon}
+      AIRECON_HOST: 0.0.0.0
+      AIRECON_PORT: 8000
+      AIRECON_LOG_LEVEL: ${AIRECON_LOG_LEVEL:-info}
+      AIRECON_LLM_BASE_URL: ${AIRECON_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      AIRECON_LLM_MODEL: ${AIRECON_LLM_MODEL:-qwen3.5:35b}
+      AIRECON_LLM_API_KEY: ${AIRECON_LLM_API_KEY:-}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  migrate:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-airecon}:${POSTGRES_PASSWORD:-airecon}@db:5432/${POSTGRES_DB:-airecon}
+    command: ["prisma", "db", "push", "--skip-generate"]
+    restart: "no"
+
+volumes:
+  pgdata:
